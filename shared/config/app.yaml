@@ -1,0 +1,144 @@
+# CAM Application Configuration
+# Complete configuration for Campaign Attribution Management application
+
+# Database Configuration
+database:
+  host: "zds-prod-pgdb01-01.bo3.e-dialog.com"
+  port: 5432
+  database: "apt_tool_db"
+  username: "datateam"
+  password: "Datat3amSU!"
+  tables:
+    clients: "apt_custom_client_info_table_dnd"
+    requests: "apt_custom_postback_request_details_dnd_test"
+    qa_stats: "apt_custom_postback_qa_table_dnd"
+    users: "apt_custom_apt_tool_user_details_dnd"
+  pools:
+    min_size: 5
+    max_size: 20
+    timeout: 30000
+
+# Application Constants
+constants:
+  pagination:
+    defaultPageSize: 50
+    maxPageSize: 500
+  requests:
+    maxRetries: 3
+    timeoutMs: 300000
+    validStatuses: ["P", "C", "E", "RW", "RE"]
+    defaultOldDeliveredPercentage: 65  # Default value for old_delivered_per field
+    columns:
+      requestIdSuppression: "request_id_supp"
+      priorityFile: "priority_file"
+      priorityFilePercentage: "priority_file_per"
+      timeStampPath: "timestamp_report_path"
+  files:
+    maxUploadSize: 104857600  # 100MB
+    allowedTypes: [".csv", ".xlsx", ".txt"]
+    uploadPath: "/uploads"
+  modules:
+    1: "trt"
+    2: "logs"
+    3: "suppression"
+    4: "source"
+    5: "report"
+    6: "timestamps"
+    7: "ip"
+  api:
+    baseUrl: "http://localhost:5000"
+    timeout: 30000
+    retries: 3
+    cors:
+      allowedOrigins:
+        - "http://localhost:3009"
+        - "http://127.0.0.1:3009"
+        - "http://localhost:3010"
+        - "http://127.0.0.1:3010"
+        - "http://localhost:3011"
+        - "http://127.0.0.1:3011"
+        - "http://localhost:3012"
+        - "http://127.0.0.1:3012"
+      allowedHeaders: ["Content-Type", "Accept", "Authorization"]
+      allowedMethods: ["GET", "POST", "OPTIONS"]
+
+# ZETA Organization Theme
+theme:
+  colors:
+    primary: "#334155"        # Professional Slate Gray
+    secondary: "#475569"      # Medium Slate
+    accent: "#0F172A"         # Dark Slate
+  gradients:
+    client: "from-slate-50 to-gray-100"
+    date: "from-amber-50 to-orange-50"
+    file: "from-green-50 to-emerald-50"
+    report: "from-yellow-50 to-amber-50"
+    suppression: "from-violet-50 to-purple-50"
+    priority: "from-blue-50 to-cyan-50"
+    query: "from-rose-50 to-pink-50"
+    submit: "from-slate-600 to-gray-700"
+  sections:
+    client:
+      title: "Client Information"
+      icon: "check-circle"
+      borderColor: "border-slate-300"
+    date:
+      title: "Campaign Dates"
+      icon: "calendar"
+      borderColor: "border-amber-300"
+    file:
+      title: "File Options"
+      icon: "cog"
+      borderColor: "border-green-300"
+    report:
+      title: "Report Paths"
+      icon: "folder"
+      borderColor: "border-yellow-300"
+    suppression:
+      title: "Suppression List"
+      icon: "shield"
+      borderColor: "border-violet-300"
+    priority:
+      title: "Data Priority Settings"
+      icon: "database"
+      borderColor: "border-blue-300"
+    query:
+      title: "SQL Query"
+      icon: "code"
+      borderColor: "border-rose-300"
+
+# Security Configuration
+security:
+  rateLimit:
+    windowMs: 900000    # 15 minutes
+    maxRequests: 100
+  cors:
+    credentials: true
+  headers:
+    contentSecurityPolicy: false
+    hsts: true
+
+# Environment Settings
+environment: "development"
+debug: true
+logging:
+  level: "DEBUG"
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+# Frontend Configuration
+frontend:
+  development:
+    port: 3009
+    host: "localhost"
+  build:
+    outputDir: "dist"
+    assetsDir: "assets"
+
+# Backend Configuration
+backend:
+  development:
+    port: 5000
+    host: "0.0.0.0"
+  debug: true
+  threading: true
+  reloader: false
