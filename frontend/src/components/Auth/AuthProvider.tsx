@@ -43,7 +43,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setIsLoading(true);
 
-      // Check if user has valid session
+      // Check for existing valid session
       const isValid = await authService.initialize();
 
       if (isValid) {
@@ -66,6 +66,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       setIsLoading(true);
 
+      // Make API call to authenticate user
       const response = await authService.login({ username, password });
 
       if (response.success) {

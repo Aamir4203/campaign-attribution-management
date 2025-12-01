@@ -53,14 +53,14 @@ const KillButton: React.FC<{ request: Request; onAction: () => void }> = ({ requ
   }
 
   const handleKill = async () => {
-    if (window.confirm(`Are you sure you want to kill request ${request.request_id}?`)) {
+    if (window.confirm(`Are you sure you want to cancel request ${request.request_id}?`)) {
       setIsProcessing(true);
       try {
         await requestService.killRequest(request.request_id);
         alert(`Request ${request.request_id} has been cancelled`);
         onAction();
       } catch (error) {
-        console.error('Kill request failed:', error);
+        console.error('Cancel request failed:', error);
         alert('Failed to cancel request. Please try again.');
       } finally {
         setIsProcessing(false);
@@ -73,9 +73,9 @@ const KillButton: React.FC<{ request: Request; onAction: () => void }> = ({ requ
       onClick={handleKill}
       disabled={isProcessing}
       className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-      title="Kill/Cancel"
+      title="Cancel Request"
     >
-      {isProcessing ? 'Killing...' : 'Kill'}
+      {isProcessing ? 'Cancelling...' : 'Cancel'}
     </button>
   );
 };
@@ -380,31 +380,31 @@ const RequestLogs: React.FC = () => {
         <table className="w-full border-collapse border border-gray-300">
           <thead className="bg-gray-100 sticky top-0 z-10">
             <tr>
-              <th className="w-20 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-20 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 RequestId
               </th>
-              <th className="w-32 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-32 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 Client Name
               </th>
-              <th className="w-20 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-20 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 Week
               </th>
-              <th className="w-28 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-28 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 AddedBy
               </th>
-              <th className="w-24 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 TRTCount
               </th>
-              <th className="w-24 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 Status
               </th>
-              <th className="w-48 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-48 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 Description
               </th>
-              <th className="w-24 px-3 py-3 text-left text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 ExecTime
               </th>
-              <th className="w-60 px-3 py-3 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-60 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
                 Actions
               </th>
             </tr>
@@ -412,32 +412,32 @@ const RequestLogs: React.FC = () => {
           <tbody className="bg-white">
             {requests.map((request) => (
               <tr key={request.request_id} className="hover:bg-gray-50">
-                <td className="w-20 px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-200">
+                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm font-medium text-gray-900 border-b border-gray-200 align-top">
                   {request.request_id}
                 </td>
-                <td className="w-32 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-32 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
                   {request.client_name}
                 </td>
-                <td className="w-20 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
                   {request.week}
                 </td>
-                <td className="w-28 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-28 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
                   {request.added_by}
                 </td>
-                <td className="w-24 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
                   {request.trt_count ? request.trt_count.toLocaleString() : '-'}
                 </td>
-                <td className="w-24 px-3 py-4 whitespace-nowrap border border-gray-200">
+                <td className="w-24 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-top">
                   <StatusBadge status={request.request_status} />
                 </td>
-                <td className="w-48 px-3 py-4 text-sm text-gray-900 border border-gray-200 truncate" title={request.request_desc}>
+                <td className="w-48 px-3 py-1 text-sm text-gray-900 border-b border-gray-200 truncate align-top" title={request.request_desc}>
                   {request.request_desc}
                 </td>
-                <td className="w-24 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
                   {request.execution_time || '-'}
                 </td>
-                <td className="w-60 px-3 py-4 whitespace-nowrap border border-gray-200">
-                  <div className="flex items-center justify-center space-x-1">
+                <td className="w-60 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-top">
+                  <div className="flex items-start justify-start space-x-1">
                     <KillButton request={request} onAction={loadRequests} />
                     <RerunButton request={request} onAction={loadRequests} />
                     <ViewButton request={request} />

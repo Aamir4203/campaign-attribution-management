@@ -14,16 +14,30 @@ const AppRouter: React.FC = () => {
         {/* Public route - Login */}
         <Route path="/login" element={<Login />} />
 
-        {/* Protected routes - wrapped in Layout */}
-        <Route path="/*" element={
+        {/* Root route */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+        {/* Protected routes */}
+        <Route path="/dashboard" element={
           <ProtectedRoute>
             <Layout>
-              <Routes>
-                <Route path="/" element={<Navigate to="/add-request" replace />} />
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/add-request" element={<AddRequest />} />
-                <Route path="/requests" element={<RequestLogs />} />
-              </Routes>
+              <Dashboard />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/add-request" element={
+          <ProtectedRoute>
+            <Layout>
+              <AddRequest />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/requests" element={
+          <ProtectedRoute>
+            <Layout>
+              <RequestLogs />
             </Layout>
           </ProtectedRoute>
         } />
