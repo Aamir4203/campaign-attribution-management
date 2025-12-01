@@ -412,31 +412,31 @@ const RequestLogs: React.FC = () => {
           <tbody className="bg-white">
             {requests.map((request) => (
               <tr key={request.request_id} className="hover:bg-gray-50">
-                <td className="w-20 px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border border-gray-200">
+                <td className="w-20 px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-900 border-b border-gray-200">
                   {request.request_id}
                 </td>
-                <td className="w-32 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-32 px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
                   {request.client_name}
                 </td>
-                <td className="w-20 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-20 px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
                   {request.week}
                 </td>
-                <td className="w-28 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-28 px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
                   {request.added_by}
                 </td>
-                <td className="w-24 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-24 px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
                   {request.trt_count ? request.trt_count.toLocaleString() : '-'}
                 </td>
-                <td className="w-24 px-3 py-4 whitespace-nowrap border border-gray-200">
+                <td className="w-24 px-3 py-2 whitespace-nowrap border-b border-gray-200">
                   <StatusBadge status={request.request_status} />
                 </td>
-                <td className="w-48 px-3 py-4 text-sm text-gray-900 border border-gray-200 truncate" title={request.request_desc}>
+                <td className="w-48 px-3 py-2 text-sm text-gray-900 border-b border-gray-200 truncate" title={request.request_desc}>
                   {request.request_desc}
                 </td>
-                <td className="w-24 px-3 py-4 whitespace-nowrap text-sm text-gray-900 border border-gray-200">
+                <td className="w-24 px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
                   {request.execution_time || '-'}
                 </td>
-                <td className="w-60 px-3 py-4 whitespace-nowrap border border-gray-200">
+                <td className="w-60 px-3 py-2 whitespace-nowrap border-b border-gray-200">
                   <div className="flex items-center justify-center space-x-1">
                     <KillButton request={request} onAction={loadRequests} />
                     <RerunButton request={request} onAction={loadRequests} />
