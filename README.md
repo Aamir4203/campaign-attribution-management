@@ -371,6 +371,50 @@ Campaign-Attribution-Management/
 
 ## 📈 **Recent Improvements & Fixes**
 
+### **December 4, 2025 - VERTICAL CENTER ALIGNMENT ✅**
+- ⬆️⬇️ **Center Alignment**: Changed table cells from `align-top` to `align-middle` for vertical center alignment
+- 🎯 **Balanced Layout**: Content now centered vertically within cells for professional appearance
+- 🔘 **Action Buttons**: Updated button container from `items-start` to `items-center` for perfect vertical centering
+- 📊 **Consistent Alignment**: All content (text, badges, buttons) now vertically centered in their cells
+- 👁️ **Visual Balance**: Better visual hierarchy with centered content throughout the table
+- ✨ **Professional Look**: Modern, balanced table design with proper vertical spacing
+
+### **December 4, 2025 - TABLE HEADER ENHANCEMENT ✅**
+- 📏 **Bottom Border Added**: Added prominent 2px bottom border to table header (`border-b-2 border-gray-400`)
+- 🔤 **Darker Header Font**: Changed header text color from `text-gray-600` to `text-gray-700` for better contrast
+- ✨ **Visual Separation**: Clear visual separation between header and table content
+- 🎯 **Professional Look**: Enhanced header prominence with darker text and defined border
+- 👁️ **Better Readability**: Improved contrast makes headers stand out more clearly
+
+### **December 4, 2025 - REFINED TABLE STYLING ✅**
+- 🎨 **White Header Background**: Changed table header background from gray to clean white for modern look
+- 🔤 **Lighter Header Font**: Updated header text from bold black to semibold gray (`text-gray-600 font-semibold`) for softer appearance
+- 📝 **Lighter Content Font**: Changed table content from dark gray-900 to lighter gray-700 for better readability
+- 🎯 **Professional Aesthetic**: Softer, more refined table styling with reduced visual weight
+- ✨ **Modern Design**: Clean white-on-white design with subtle gray text for contemporary look
+- 👁️ **Enhanced Readability**: Lighter colors reduce eye strain while maintaining clear visibility
+
+### **December 4, 2025 - CUSTOM CANCEL CONFIRMATION DIALOG ✅**
+- 💬 **Professional Confirmation Modal**: Replaced browser's `window.confirm()` with custom modal dialog
+- 🚫 **Eliminated "localhost says..."**: No more browser-specific confirmation messages
+- 🎨 **Modern UI Design**: Clean modal with overlay, proper styling, and clear messaging
+- 📝 **Better UX**: Shows request ID, warning message, and clear Yes/No action buttons
+- ⚡ **Consistent Experience**: Matches logout dialog style for uniform user experience
+- 🎯 **Action Clarity**: "Yes, Cancel" and "No" buttons with proper color coding (red for cancel action)
+- 💾 **Loading States**: Shows "Cancelling..." feedback while processing the request
+
+### **December 4, 2025 - ICON-BASED ACTION BUTTONS ✅**
+- 🎨 **Icon Migration Complete**: All action buttons converted from text to professional icons using React Icons (Material Design)
+- ⊗ **Cancel Button**: Red MdCancel icon with light red background
+- ⟲ **ReRun Button**: Blue MdRefresh icon with dropdown menu for Type1/Type2/Type3 selection
+- 👁️ **View Button**: Gray MdVisibility eye icon for viewing request details
+- 📊 **Metrics Button**: Green MdBarChart statistics icon (renamed from Download)
+- 📎 **Upload Button**: Purple MdAttachFile paperclip icon for file uploads
+- 🎯 **Consistent Design**: All icons sized at 20px (w-5 h-5) with matching light backgrounds and borders
+- 📏 **Optimized Spacing**: Maintained 4px gap between buttons for clean visual separation
+- ⚡ **Better UX**: Tooltips on hover show action descriptions, icons are more intuitive than text
+- 💾 **Space Efficient**: Icon buttons take less horizontal space, allowing more data visibility
+
 ### **December 2, 2025 - REQUEST MONITOR TABLE UI IMPROVEMENTS ✅**
 - 📐 **Perfect Header-Content Alignment**: Synchronized header and content padding to `py-1` for exact alignment
 - 📊 **Ultra-Compact Design**: Uniform `py-1` padding for both headers and content cells for maximum data density

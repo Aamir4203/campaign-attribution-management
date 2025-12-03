@@ -743,7 +743,7 @@ def get_requests():
         SELECT 
             a.request_id,
            lower(b.client_name) as client_name,
-            a.week,
+            lower(a.week) as week,
             lower(a.added_by) as added_by,
             COALESCE(c.rltp_file_count, 0) as trt_count,
             a.request_status,

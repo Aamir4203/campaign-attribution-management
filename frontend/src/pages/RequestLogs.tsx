@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { requestService } from '../services/requestService';
+import { MdCancel, MdRefresh, MdVisibility, MdBarChart, MdAttachFile } from 'react-icons/md';
 
 // Request interface based on database table structure
 interface Request {
@@ -46,6 +47,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 // Individual button components
 const KillButton: React.FC<{ request: Request; onAction: () => void }> = ({ request, onAction }) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   // Only show for Running status (matching LogStreamr logic)
   if (request.request_status !== 'R') {
@@ -53,30 +55,60 @@ const KillButton: React.FC<{ request: Request; onAction: () => void }> = ({ requ
   }
 
   const handleKill = async () => {
-    if (window.confirm(`Are you sure you want to cancel request ${request.request_id}?`)) {
-      setIsProcessing(true);
-      try {
-        await requestService.killRequest(request.request_id);
-        alert(`Request ${request.request_id} has been cancelled`);
-        onAction();
-      } catch (error) {
-        console.error('Cancel request failed:', error);
-        alert('Failed to cancel request. Please try again.');
-      } finally {
-        setIsProcessing(false);
-      }
+    setIsProcessing(true);
+    setShowConfirm(false);
+    try {
+      await requestService.killRequest(request.request_id);
+      alert(`Request ${request.request_id} has been cancelled successfully`);
+      onAction();
+    } catch (error) {
+      console.error('Cancel request failed:', error);
+      alert('Failed to cancel request. Please try again.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
-    <button
-      onClick={handleKill}
-      disabled={isProcessing}
-      className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-      title="Cancel Request"
-    >
-      {isProcessing ? 'Cancelling...' : 'Cancel'}
-    </button>
+    <>
+      <button
+        onClick={() => setShowConfirm(true)}
+        disabled={isProcessing}
+        className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors disabled:opacity-50 border border-red-200"
+        title="Cancel Request"
+      >
+        <MdCancel className="w-5 h-5" />
+      </button>
+
+      {/* Confirmation Dialog */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Confirm Cancellation</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to cancel request <span className="font-semibold text-gray-900">#{request.request_id}</span>?
+              <br />
+              <span className="text-sm text-gray-500 mt-2 block">This action cannot be undone.</span>
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              >
+                No
+              </button>
+              <button
+                onClick={handleKill}
+                disabled={isProcessing}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50"
+              >
+                {isProcessing ? 'Cancelling...' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -109,10 +141,10 @@ const RerunButton: React.FC<{ request: Request; onAction: () => void }> = ({ req
       <button
         onClick={() => setShowDropdown(!showDropdown)}
         disabled={isProcessing}
-        className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+        className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors disabled:opacity-50 border border-blue-200"
         title="ReRun"
       >
-        {isProcessing ? 'Processing...' : 'ReRun ▼'}
+        <MdRefresh className="w-5 h-5" />
       </button>
       {showDropdown && (
         <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-24">
@@ -153,15 +185,15 @@ const ViewButton: React.FC<{ request: Request }> = ({ request }) => {
   return (
     <button
       onClick={handleView}
-      className="px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 transition-colors"
+      className="p-1.5 bg-gray-50 text-gray-600 rounded hover:bg-gray-100 transition-colors border border-gray-200"
       title="View Details"
     >
-      View
+      <MdVisibility className="w-5 h-5" />
     </button>
   );
 };
 
-const DownloadButton: React.FC<{ request: Request }> = ({ request }) => {
+const MetricsButton: React.FC<{ request: Request }> = ({ request }) => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Only show for Completed status (matching LogStreamr logic)
@@ -169,21 +201,21 @@ const DownloadButton: React.FC<{ request: Request }> = ({ request }) => {
     return <span></span>;
   }
 
-  const handleDownload = async () => {
+  const handleMetrics = async () => {
     setIsProcessing(true);
     try {
       const blob = await requestService.downloadRequest(request.request_id);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `request_${request.request_id}_files.zip`;
+      a.download = `request_${request.request_id}_metrics.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error) {
-      console.error('Download failed:', error);
-      alert('Download functionality not available yet.');
+      console.error('Metrics download failed:', error);
+      alert('Metrics functionality not available yet.');
     } finally {
       setIsProcessing(false);
     }
@@ -191,12 +223,12 @@ const DownloadButton: React.FC<{ request: Request }> = ({ request }) => {
 
   return (
     <button
-      onClick={handleDownload}
+      onClick={handleMetrics}
       disabled={isProcessing}
-      className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors disabled:opacity-50"
-      title="Download"
+      className="p-1.5 bg-green-50 text-green-600 rounded hover:bg-green-100 transition-colors disabled:opacity-50 border border-green-200"
+      title="Download Metrics"
     >
-      {isProcessing ? 'Downloading...' : 'Download'}
+      <MdBarChart className="w-5 h-5" />
     </button>
   );
 };
@@ -236,10 +268,10 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void }> = ({ re
     <button
       onClick={handleUpload}
       disabled={isProcessing}
-      className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors disabled:opacity-50"
-      title="Upload"
+      className="p-1.5 bg-purple-50 text-purple-600 rounded hover:bg-purple-100 transition-colors disabled:opacity-50 border border-purple-200"
+      title="Upload File"
     >
-      {isProcessing ? 'Uploading...' : 'Upload'}
+      <MdAttachFile className="w-5 h-5" />
     </button>
   );
 };
@@ -378,33 +410,33 @@ const RequestLogs: React.FC = () => {
       {/* Table Container - Scrollable middle section */}
       <div className="overflow-auto bg-white" style={{ height: 'calc(100vh - 220px)' }}>
         <table className="w-full border-collapse border border-gray-300">
-          <thead className="bg-gray-100 sticky top-0 z-10">
+          <thead className="bg-white sticky top-0 z-10 border-b-2 border-gray-400">
             <tr>
-              <th className="w-20 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-20 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
                 RequestId
               </th>
-              <th className="w-32 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
-                Client Name
+              <th className="w-32 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
+                ClientName
               </th>
-              <th className="w-20 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-20 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
                 Week
               </th>
-              <th className="w-28 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
-                AddedBy
+              <th className="w-28 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
+                User
               </th>
-              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-24 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
                 TRTCount
               </th>
-              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-24 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
                 Status
               </th>
-              <th className="w-48 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-48 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
                 Description
               </th>
-              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-24 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
                 ExecTime
               </th>
-              <th className="w-60 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-60 px-3 py-1 text-center text-sm font-semibold text-gray-700 tracking-wider border border-gray-300">
                 Actions
               </th>
             </tr>
@@ -412,36 +444,36 @@ const RequestLogs: React.FC = () => {
           <tbody className="bg-white">
             {requests.map((request) => (
               <tr key={request.request_id} className="hover:bg-gray-50">
-                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm font-medium text-gray-900 border-b border-gray-200 align-top">
+                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm font-medium text-gray-700 border-b border-gray-200 align-middle text-left">
                   {request.request_id}
                 </td>
-                <td className="w-32 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
+                <td className="w-32 px-3 py-1 whitespace-nowrap text-sm text-gray-700 border-b border-gray-200 align-middle text-left">
                   {request.client_name}
                 </td>
-                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
+                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm text-gray-700 border-b border-gray-200 align-middle text-left">
                   {request.week}
                 </td>
-                <td className="w-28 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
+                <td className="w-28 px-3 py-1 whitespace-nowrap text-sm text-gray-700 border-b border-gray-200 align-middle text-left">
                   {request.added_by}
                 </td>
-                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
+                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-700 border-b border-gray-200 align-middle text-left">
                   {request.trt_count ? request.trt_count.toLocaleString() : '-'}
                 </td>
-                <td className="w-24 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-top">
+                <td className="w-24 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-middle text-left">
                   <StatusBadge status={request.request_status} />
                 </td>
-                <td className="w-48 px-3 py-1 text-sm text-gray-900 border-b border-gray-200 truncate align-top" title={request.request_desc}>
+                <td className="w-48 px-3 py-1 text-sm text-gray-700 border-b border-gray-200 truncate align-middle text-left" title={request.request_desc}>
                   {request.request_desc}
                 </td>
-                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
+                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-700 border-b border-gray-200 align-middle text-left">
                   {request.execution_time || '-'}
                 </td>
-                <td className="w-60 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-top">
-                  <div className="flex items-start justify-start space-x-1">
+                <td className="w-60 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-middle text-left">
+                  <div className="flex items-center justify-start space-x-1">
                     <KillButton request={request} onAction={loadRequests} />
                     <RerunButton request={request} onAction={loadRequests} />
                     <ViewButton request={request} />
-                    <DownloadButton request={request} />
+                    <MetricsButton request={request} />
                     <UploadButton request={request} onAction={loadRequests} />
                   </div>
                 </td>
