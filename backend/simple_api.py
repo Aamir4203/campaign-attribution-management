@@ -552,6 +552,381 @@ def submit_form():
             'message': f'Failed to process form data: {str(e)}'
         }), 500
 
+@app.route('/add_request', methods=['POST'])
+def add_request():
+    """Add new campaign attribution request - modern API endpoint"""
+    try:
+        logger.info("🚀 ADD_REQUEST v1.0 - Modern API endpoint for AddRequestForm")
+
+        data = request.get_json()
+        logger.info(f"📝 Received request data: {data}")
+
+        # Convert underscore-separated fields to camelCase for existing submit_form logic
+        converted_data = {
+            'clientName': data.get('client_name'),
+            'addedBy': data.get('added_by'),
+            'requestType': str(data.get('request_type', '1')),
+            'filePath': data.get('file_path'),
+            'startDate': data.get('start_date'),
+            'endDate': data.get('end_date'),
+            'residualStart': data.get('residual_start'),
+            'week': data.get('week'),
+            'reportpath': data.get('report_path'),
+            'qspath': data.get('decile_report_path'),
+            'options': data.get('options', 'N'),
+            'Offer_option': data.get('offer_option', ''),
+            'bounce_option': data.get('bounce_option', ''),
+            'cs_option': data.get('cs_option', ''),
+            'input_query': data.get('query'),
+            'addTimeStamp': data.get('timestamp_append') == 'Y',
+            'addIpsLogs': data.get('ip_append') == 'Y',
+            'offerSuppression': data.get('offerid_unsub_supp') == 'Y',
+            'addBounce': data.get('include_bounce_as_delivered') == 'Y',
+            'clientSuppression': bool(data.get('supp_path')),
+            'clientSuppressionPath': data.get('supp_path', ''),
+            'requestIdSuppression': bool(data.get('request_id_supp')),
+            'requestIdSuppressionList': data.get('request_id_supp', ''),
+            'timeStampPath': data.get('timestamp_report_path', ''),
+            'fileType': data.get('file_type', 'Delivered'),
+            'priorityFile': data.get('priority_file', ''),
+            'priorityFilePer': data.get('priority_file_per')
+        }
+
+        logger.info(f"🔄 Converted data for internal processing: {converted_data}")
+
+        # Validate required fields
+        required_fields = ['clientName', 'addedBy', 'requestType', 'startDate', 'endDate']
+        missing_fields = [field for field in required_fields if not converted_data.get(field)]
+
+        if missing_fields:
+            return jsonify({
+                'success': False,
+                'message': f'Missing required fields: {", ".join(missing_fields)}'
+            }), 400
+
+        # Validate dates
+        if converted_data.get('residualStart'):
+            from datetime import datetime as dt
+            try:
+                start_date = dt.strptime(converted_data['startDate'], '%Y-%m-%d').date()
+                end_date = dt.strptime(converted_data['endDate'], '%Y-%m-%d').date()
+                residual_date = dt.strptime(converted_data['residualStart'], '%Y-%m-%d').date()
+
+                if residual_date < end_date:
+                    return jsonify({
+                        'success': False,
+                        'message': 'Residual date must be equal to or greater than end date'
+                    }), 400
+
+                logger.info(f"✅ Date validation passed: Start={start_date}, End={end_date}, Residual={residual_date}")
+
+            except ValueError as ve:
+                return jsonify({
+                    'success': False,
+                    'message': f'Invalid date format: {str(ve)}'
+                }), 400
+
+        # Get database connection
+        logger.info("🔗 Attempting database connection...")
+        conn = get_db_connection()
+        if not conn:
+            logger.error("❌ Database connection failed")
+            return jsonify({
+                'success': False,
+                'message': 'Database connection failed'
+            }), 500
+
+        logger.info("✅ Database connection successful")
+        cursor = conn.cursor()
+
+        # Get client_id from client_name
+        logger.info(f"🔍 Looking up client: {converted_data['clientName']}")
+        clients_table = config.get_table_name('clients')
+        cursor.execute(
+            f"SELECT client_id FROM {clients_table} WHERE LOWER(client_name) = LOWER(%s)",
+            (converted_data['clientName'],)
+        )
+        client_result = cursor.fetchone()
+
+        if not client_result:
+            cursor.close()
+            conn.close()
+            logger.error(f"❌ Client not found: {converted_data['clientName']}")
+            return jsonify({
+                'success': False,
+                'message': f'Client "{converted_data["clientName"]}" not found in database'
+            }), 400
+
+        client_id = client_result[0]
+        logger.info(f"✅ Client found: ID {client_id}")
+
+        # Insert into requests table
+        requests_table = config.get_table_name('requests')
+        logger.info(f"📝 Inserting request into {requests_table}")
+
+        insert_query = f"""
+            INSERT INTO {requests_table} (
+                client_id, added_by, type, unique_decile_report_path, from_date, end_date,
+                residual_date, week, cpm_report_path, decile_wise_report_path,
+                offerid_unsub_supp, include_bounce_as_delivered, supp_path, 
+                request_id_supp, timestamp_report_path, timestamp_append, ip_append,
+                query, priority_file, priority_file_per, on_sent, old_delivered_per
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 
+                %s, %s, %s, %s, %s, %s, %s
+            ) RETURNING request_id
+        """
+
+        values = (
+            client_id,
+            converted_data['addedBy'],
+            int(converted_data['requestType']),
+            converted_data.get('filePath', ''),  # unique_decile_report_path
+            converted_data['startDate'],  # from_date
+            converted_data['endDate'],  # end_date
+            converted_data.get('residualStart'),  # residual_date
+            converted_data.get('week', ''),
+            converted_data.get('reportpath', ''),  # cpm_report_path
+            converted_data.get('qspath', ''),  # decile_wise_report_path
+            'Y' if converted_data.get('offerSuppression') else 'N',  # offerid_unsub_supp
+            'Y' if converted_data.get('addBounce') else 'N',  # include_bounce_as_delivered
+            converted_data.get('clientSuppressionPath', ''),  # supp_path
+            converted_data.get('requestIdSuppressionList', ''),  # request_id_supp
+            converted_data.get('timeStampPath', ''),  # timestamp_report_path
+            'Y' if converted_data.get('addTimeStamp') else 'N',  # timestamp_append
+            'Y' if converted_data.get('addIpsLogs') else 'N',  # ip_append
+            converted_data.get('input_query', ''),  # query
+            converted_data.get('priorityFile', ''),  # priority_file
+            converted_data.get('priorityFilePer'),  # priority_file_per
+            'Y' if converted_data.get('fileType') == 'Sent' else 'N',  # on_sent
+            1  # old_delivered_per - default value
+        )
+
+        cursor.execute(insert_query, values)
+        request_id = cursor.fetchone()[0]
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        logger.info(f"✅ Request created successfully with ID: {request_id}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Request submitted successfully',
+            'request_id': request_id
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error in add_request: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to process request: {str(e)}'
+        }), 500
+
+@app.route('/update_request/<int:request_id>', methods=['POST'])
+def update_request(request_id):
+    """Update existing request with new form data and trigger rerun from specified module"""
+    logger.info(f"🔄 Update request endpoint called for ID: {request_id}")
+
+    try:
+        data = request.get_json()
+        logger.info(f"📝 Received update data: {data}")
+
+        # Extract rerun module information
+        rerun_module = data.get('rerun_module', 'TRT')
+        original_request_id = data.get('original_request_id')
+
+        # Convert data format (same as add_request)
+        converted_data = {
+            'clientName': data.get('client_name'),
+            'addedBy': data.get('added_by'),
+            'requestType': str(data.get('request_type', '1')),
+            'filePath': data.get('file_path'),
+            'startDate': data.get('start_date'),
+            'endDate': data.get('end_date'),
+            'residualStart': data.get('residual_start'),
+            'week': data.get('week'),
+            'reportpath': data.get('report_path'),
+            'qspath': data.get('decile_report_path'),
+            'options': data.get('options', 'N'),
+            'Offer_option': data.get('offer_option', ''),
+            'bounce_option': data.get('bounce_option', ''),
+            'cs_option': data.get('cs_option', ''),
+            'input_query': data.get('query'),
+            'addTimeStamp': data.get('timestamp_append') == 'Y',
+            'addIpsLogs': data.get('ip_append') == 'Y',
+            'offerSuppression': data.get('offerid_unsub_supp') == 'Y',
+            'addBounce': data.get('include_bounce_as_delivered') == 'Y',
+            'clientSuppression': bool(data.get('supp_path')),
+            'clientSuppressionPath': data.get('supp_path', ''),
+            'requestIdSuppression': bool(data.get('request_id_supp')),
+            'requestIdSuppressionList': data.get('request_id_supp', ''),
+            'timeStampPath': data.get('timestamp_report_path', ''),
+            'fileType': data.get('file_type', 'Delivered'),
+            'priorityFile': data.get('priority_file', ''),
+            'priorityFilePer': data.get('priority_file_per')
+        }
+
+        logger.info(f"🔄 Converted data for update: {converted_data}")
+
+        # Validate required fields
+        required_fields = ['clientName', 'addedBy', 'requestType', 'startDate', 'endDate']
+        missing_fields = [field for field in required_fields if not converted_data.get(field)]
+
+        if missing_fields:
+            return jsonify({
+                'success': False,
+                'message': f'Missing required fields: {", ".join(missing_fields)}'
+            }), 400
+
+        # Validate dates
+        if converted_data.get('residualStart'):
+            from datetime import datetime as dt
+            try:
+                start_date = dt.strptime(converted_data['startDate'], '%Y-%m-%d').date()
+                end_date = dt.strptime(converted_data['endDate'], '%Y-%m-%d').date()
+                residual_date = dt.strptime(converted_data['residualStart'], '%Y-%m-%d').date()
+
+                if residual_date < end_date:
+                    return jsonify({
+                        'success': False,
+                        'message': 'Residual date must be equal to or greater than end date'
+                    }), 400
+
+                logger.info(f"✅ Date validation passed for update")
+
+            except ValueError as ve:
+                return jsonify({
+                    'success': False,
+                    'message': f'Invalid date format: {str(ve)}'
+                }), 400
+
+        # Map rerun modules to error codes (same as rerun endpoint)
+        module_error_codes = {
+            'TRT': 1,
+            'Responders': 2,
+            'Suppression': 3,
+            'Source': 4,
+            'Delivered Report': 5,
+            'TimeStamp Appending': 6,
+            'IP Appending': 7
+        }
+        error_code = module_error_codes.get(rerun_module, 1)
+
+        logger.info(f"🔄 Update with rerun module: {rerun_module}, Error code: {error_code}")
+
+        # Get database connection
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Get client_id from client_name
+        clients_table = config.get_table_name('clients')
+        cursor.execute(
+            f"SELECT client_id FROM {clients_table} WHERE LOWER(client_name) = LOWER(%s)",
+            (converted_data['clientName'],)
+        )
+        client_result = cursor.fetchone()
+
+        if not client_result:
+            cursor.close()
+            conn.close()
+            return jsonify({
+                'success': False,
+                'message': f'Client "{converted_data["clientName"]}" not found in database'
+            }), 400
+
+        client_id = client_result[0]
+
+        # Update the existing request with new form data and rerun settings
+        requests_table = config.get_table_name('requests')
+
+        update_query = f"""
+            UPDATE {requests_table} SET 
+                client_id = %s,
+                added_by = %s,
+                type = %s,
+                unique_decile_report_path = %s,
+                from_date = %s,
+                end_date = %s,
+                residual_date = %s,
+                week = %s,
+                cpm_report_path = %s,
+                decile_wise_report_path = %s,
+                offerid_unsub_supp = %s,
+                include_bounce_as_delivered = %s,
+                supp_path = %s,
+                request_id_supp = %s,
+                timestamp_report_path = %s,
+                timestamp_append = %s,
+                ip_append = %s,
+                query = %s,
+                priority_file = %s,
+                priority_file_per = %s,
+                on_sent = %s,
+                request_status = 'RE',
+                error_code = %s,
+                request_validation = NULL,
+                request_desc = %s,
+                request_start_time = NOW()
+            WHERE request_id = %s
+        """
+
+        description = f"Request updated and queued for rerun from {rerun_module} module"
+
+        update_values = (
+            client_id,
+            converted_data['addedBy'],
+            int(converted_data['requestType']),
+            converted_data.get('filePath', ''),  # unique_decile_report_path
+            converted_data['startDate'],  # from_date
+            converted_data['endDate'],  # end_date
+            converted_data.get('residualStart'),  # residual_date
+            converted_data.get('week', ''),
+            converted_data.get('reportpath', ''),  # cpm_report_path
+            converted_data.get('qspath', ''),  # decile_wise_report_path
+            'Y' if converted_data.get('offerSuppression') else 'N',  # offerid_unsub_supp
+            'Y' if converted_data.get('addBounce') else 'N',  # include_bounce_as_delivered
+            converted_data.get('clientSuppressionPath', ''),  # supp_path
+            converted_data.get('requestIdSuppressionList', ''),  # request_id_supp
+            converted_data.get('timeStampPath', ''),  # timestamp_report_path
+            'Y' if converted_data.get('addTimeStamp') else 'N',  # timestamp_append
+            'Y' if converted_data.get('addIpsLogs') else 'N',  # ip_append
+            converted_data.get('input_query', ''),  # query
+            converted_data.get('priorityFile', ''),  # priority_file
+            converted_data.get('priorityFilePer'),  # priority_file_per
+            'Y' if converted_data.get('fileType') == 'Sent' else 'N',  # on_sent
+            error_code,  # error_code for rerun module
+            description,  # request_desc
+            request_id  # WHERE condition
+        )
+
+        cursor.execute(update_query, update_values)
+
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        logger.info(f"✅ Request {request_id} updated successfully and marked for rerun - Module: {rerun_module} (Error Code: {error_code})")
+
+        return jsonify({
+            'success': True,
+            'message': f'Request {request_id} updated and queued for rerun from {rerun_module} module',
+            'request_id': request_id
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error during request update: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # Session storage (in production, use Redis or database)
 active_sessions = {}
 
@@ -876,15 +1251,28 @@ def get_request_details(request_id):
 
 @app.route('/api/requests/<int:request_id>/rerun', methods=['POST'])
 def rerun_request(request_id):
-    """Trigger rerun for a specific request"""
+    """Trigger rerun for a specific request with module selection"""
     logger.info(f"🔄 Rerun request endpoint called for ID: {request_id}")
 
     try:
         data = request.get_json()
-        rerun_type = data.get('rerun_type', 'Type1')
+        rerun_module = data.get('rerun_type', 'TRT')
 
-        # Here you would implement the actual rerun logic
-        # For now, we'll just update the status to RE (ReRequested)
+        # Map rerun modules to error codes
+        module_error_codes = {
+            'TRT': 1,
+            'Responders': 2,
+            'Suppression': 3,
+            'Source': 4,
+            'Delivered Report': 5,
+            'TimeStamp Appending': 6,
+            'IP Appending': 7
+        }
+
+        error_code = module_error_codes.get(rerun_module, 1)  # Default to 1 if module not found
+
+        logger.info(f"🔄 Rerun module: {rerun_module}, Error code: {error_code}")
+
         conn = get_db_connection()
         if not conn:
             return jsonify({'success': False, 'error': 'Database connection failed'}), 500
@@ -892,17 +1280,19 @@ def rerun_request(request_id):
         cursor = conn.cursor()
         requests_table = config.get_table_name('requests')
 
-        # Update request status to RE
+        # Update request with RE status, error_code for module, and reset validation
         update_query = f"""
         UPDATE {requests_table} 
         SET request_status = 'RE', 
+            error_code = %s,
+            request_validation = NULL,
             request_desc = %s,
             request_start_time = NOW()
         WHERE request_id = %s
         """
 
-        description = f"ReRequested ({rerun_type}) at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        cursor.execute(update_query, (description, request_id))
+        description = f"ReRun requested for {rerun_module} module"
+        cursor.execute(update_query, (error_code, description, request_id))
 
         if cursor.rowcount == 0:
             return jsonify({'success': False, 'error': 'Request not found'}), 404
@@ -911,11 +1301,11 @@ def rerun_request(request_id):
         cursor.close()
         conn.close()
 
-        logger.info(f"✅ Request {request_id} marked for rerun ({rerun_type})")
+        logger.info(f"✅ Request {request_id} marked for rerun - Module: {rerun_module} (Error Code: {error_code})")
 
         return jsonify({
             'success': True,
-            'message': f'Request {request_id} marked for rerun ({rerun_type})'
+            'message': f'Request {request_id} marked for rerun - {rerun_module} module'
         })
 
     except Exception as e:
@@ -924,46 +1314,147 @@ def rerun_request(request_id):
 
 @app.route('/api/requests/<int:request_id>/kill', methods=['POST'])
 def kill_request(request_id):
-    """Kill/Cancel a specific request"""
+    """Kill/Cancel a specific request using shell-based script"""
     logger.info(f"⛔ Kill request endpoint called for ID: {request_id}")
 
     try:
-        conn = get_db_connection()
-        if not conn:
-            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+        import subprocess
+        import os
 
-        cursor = conn.cursor()
-        requests_table = config.get_table_name('requests')
+        # Use the correct path based on your production environment structure
+        # From config.properties: MAIN_SCRIPTS="/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
+        script_path = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/cancelRequest.sh"
 
-        # Update request status to indicate cancellation
-        update_query = f"""
-        UPDATE {requests_table} 
-        SET request_status = 'E', 
-            request_desc = %s,
-            request_end_time = NOW()
-        WHERE request_id = %s AND request_status IN ('W', 'R')
-        """
+        logger.info(f"🔧 Executing cancel script: {script_path}")
 
-        description = f"Cancelled by user at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        cursor.execute(update_query, (description, request_id))
+        # Check if script exists
+        if not os.path.exists(script_path):
+            logger.error(f"❌ Cancel script not found: {script_path}")
 
-        if cursor.rowcount == 0:
-            return jsonify({'success': False, 'error': 'Request not found or cannot be cancelled'}), 400
+            # Fallback to database-only cancellation
+            conn = get_db_connection()
+            if not conn:
+                return jsonify({'success': False, 'error': 'Database connection failed and cancel script missing'}), 500
 
-        conn.commit()
-        cursor.close()
-        conn.close()
+            cursor = conn.cursor()
+            requests_table = config.get_table_name('requests')
 
-        logger.info(f"✅ Request {request_id} cancelled")
+            update_query = f"""
+            UPDATE {requests_table} 
+            SET request_status = 'E', 
+                request_desc = 'Cancelled',
+                request_end_time = NOW()
+            WHERE request_id = %s AND request_status IN ('W', 'R', 'RE')
+            """
 
+            cursor.execute(update_query, (request_id,))
+
+            if cursor.rowcount == 0:
+                return jsonify({'success': False, 'error': 'Request not found or cannot be cancelled'}), 400
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            return jsonify({
+                'success': True,
+                'message': f'Request {request_id} cancelled',
+                'edit_enabled': True,
+                'fallback': True
+            })
+
+        # Execute shell script with proper working directory
+        # Set working directory to the main SCRIPTS folder
+        working_directory = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
+
+        result = subprocess.run(
+            ['bash', './cancelRequest.sh', str(request_id)],
+            cwd=working_directory,
+            capture_output=True,
+            text=True,
+            timeout=60  # 60 second timeout
+        )
+
+        logger.info(f"📋 Cancel script output: {result.stdout}")
+
+        if result.stderr:
+            logger.warning(f"⚠️ Cancel script warnings: {result.stderr}")
+
+        if result.returncode == 0:
+            return jsonify({
+                'success': True,
+                'message': f'Request {request_id} cancelled successfully',
+                'output': result.stdout.split('\n')[-4:-1] if result.stdout else [],  # Last few lines
+                'edit_enabled': True,  # Enable edit button after cancellation
+                'script_used': True
+            })
+        else:
+            logger.error(f"❌ Cancel script failed with return code: {result.returncode}")
+            error_message = result.stderr.strip() if result.stderr else "Unknown error"
+
+            # Provide user-friendly error message
+            user_friendly_error = f"Process cancellation failed. {error_message}"
+            if "not found" in error_message.lower():
+                user_friendly_error = "No active processes found for this request. The request may have already completed or been cancelled."
+            elif "timeout" in error_message.lower():
+                user_friendly_error = "Cancellation timeout. Some processes may still be running. Please try again."
+            elif "permission" in error_message.lower():
+                user_friendly_error = "Permission denied. Unable to terminate processes. Please contact administrator."
+
+            return jsonify({
+                'success': False,
+                'error': user_friendly_error,
+                'output': result.stdout.split('\n') if result.stdout else [],
+                'return_code': result.returncode,
+                'retry_available': True  # Indicate that user can retry
+            }), 500
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"⏰ Cancel script timeout for request {request_id}")
         return jsonify({
-            'success': True,
-            'message': f'Request {request_id} has been cancelled'
-        })
+            'success': False,
+            'error': 'Cancellation timeout - the process is taking longer than expected. You may try again in a few moments.',
+            'retry_available': True
+        }), 500
 
     except Exception as e:
         logger.error(f"❌ Error during kill request: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+
+        # Emergency fallback to database-only cancellation
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                requests_table = config.get_table_name('requests')
+
+                update_query = f"""
+                UPDATE {requests_table} 
+                SET request_status = 'E', 
+                    request_desc = 'Emergency Cancellation - Manual Process Kill Required',
+                    request_end_time = NOW()
+                WHERE request_id = %s AND request_status IN ('W', 'R', 'RE')
+                """
+
+                cursor.execute(update_query, (request_id,))
+                conn.commit()
+                cursor.close()
+                conn.close()
+
+                return jsonify({
+                    'success': False,
+                    'error': f'Script execution failed: {str(e)}. Status marked as cancelled but manual process termination may be required.',
+                    'emergency_fallback': True,
+                    'retry_available': True,
+                    'admin_contact_required': True
+                }), 500
+        except:
+            pass
+
+        return jsonify({
+            'success': False,
+            'error': f'Cancellation error: {str(e)}. Please try again or contact administrator.',
+            'retry_available': True
+        }), 500
 
 @app.route('/api/requests/<int:request_id>/download', methods=['GET'])
 def download_request(request_id):
@@ -1061,23 +1552,28 @@ def get_dashboard_metrics():
         requests_table = config.get_table_name('requests')
         qa_table = config.get_table_name('qa_stats')
 
-        # Build WHERE clause for date filtering using request_start_time
-        base_where = "WHERE request_start_time IS NOT NULL"
+        # Build WHERE clause for date filtering using created_date (consistent with database standard)
+        base_where = "WHERE created_date IS NOT NULL"
         date_condition = ""
 
         if from_date and to_date:
-            date_condition = f" AND DATE(request_start_time) BETWEEN '{from_date}' AND '{to_date}'"
+            date_condition = f" AND DATE(created_date) BETWEEN '{from_date}' AND '{to_date}'"
         elif from_date:
-            date_condition = f" AND DATE(request_start_time) >= '{from_date}'"
+            date_condition = f" AND DATE(created_date) >= '{from_date}'"
         elif to_date:
-            date_condition = f" AND DATE(request_start_time) <= '{to_date}'"
+            date_condition = f" AND DATE(created_date) <= '{to_date}'"
 
         where_clause = base_where + date_condition
+
+        logger.info(f"🔍 Using date filter: {where_clause}")
+        logger.info("🔍 Expected to match your validation query:")
+        logger.info(f"   SELECT count(1), request_status FROM {requests_table} WHERE created_date >= '{from_date} 00:00:00' GROUP BY request_status")
 
         # Get key metrics with date filtering
         queries = {
             'total_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause}",
             'active_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'R'",
+            'waiting_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'W'",
             'completed_today': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'C'",
             'failed_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'E'",
             'avg_execution_time': f"""
@@ -1106,24 +1602,6 @@ def get_dashboard_metrics():
         conn.close()
 
         logger.info(f"📊 Dashboard metrics result: {metrics}")
-        return jsonify({
-            'success': True,
-            'metrics': metrics
-        })
-
-    except Exception as e:
-        logger.error(f"❌ Error fetching dashboard metrics: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-        metrics = {}
-        for metric_name, query in queries.items():
-            cursor.execute(query)
-            result = cursor.fetchone()
-            metrics[metric_name] = result[0] if result[0] is not None else 0
-
-        cursor.close()
-        conn.close()
-
         return jsonify({
             'success': True,
             'metrics': metrics
@@ -1325,16 +1803,16 @@ def get_user_activity():
         cursor = conn.cursor()
         requests_table = config.get_table_name('requests')
 
-        # Build WHERE clause for date filtering using request_start_time
-        base_where = "WHERE request_start_time IS NOT NULL"
+        # Build WHERE clause for date filtering using created_date (consistent with database standard)
+        base_where = "WHERE created_date IS NOT NULL"
         date_condition = ""
 
         if from_date and to_date:
-            date_condition = f" AND DATE(request_start_time) BETWEEN '{from_date}' AND '{to_date}'"
+            date_condition = f" AND DATE(created_date) BETWEEN '{from_date}' AND '{to_date}'"
         elif from_date:
-            date_condition = f" AND DATE(request_start_time) >= '{from_date}'"
+            date_condition = f" AND DATE(created_date) >= '{from_date}'"
         elif to_date:
-            date_condition = f" AND DATE(request_start_time) <= '{to_date}'"
+            date_condition = f" AND DATE(created_date) <= '{to_date}'"
 
         where_clause = base_where + date_condition
 
@@ -1381,19 +1859,6 @@ def get_user_activity():
         conn.close()
 
         logger.info(f"👥 User activity result: {len(user_data)} users found")
-        return jsonify({
-            'success': True,
-            'user_data': user_data
-        })
-
-    except Exception as e:
-        logger.error(f"❌ Error fetching user activity: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-        cursor.close()
-        conn.close()
-
         return jsonify({
             'success': True,
             'user_data': user_data

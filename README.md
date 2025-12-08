@@ -371,13 +371,169 @@ Campaign-Attribution-Management/
 
 ## 📈 **Recent Improvements & Fixes**
 
-### **December 4, 2025 - VERTICAL CENTER ALIGNMENT ✅**
+### **December 5, 2025 - REQUEST PAGE MAJOR UI/UX OVERHAUL ✅**
+- 🎨 **Modern Table Header Design**: 
+  - Rounded border edges (`first:rounded-tl-lg last:rounded-tr-lg`)
+  - Gradient background (`bg-gradient-to-r from-blue-50 to-indigo-100`)
+  - Removed vertical cell borders for seamless appearance
+  - Larger, bolder font (`text-base font-bold text-gray-800`)
+  - Enhanced visual appeal with blue gradient theme
+
+- 📐 **Fixed Column Widths with Truncation**:
+  - All table columns now have fixed widths to prevent overflow
+  - Text truncation with `...` for values exceeding column width
+  - Hover tooltips showing complete values (`title` attributes)
+  - Improved data density and readability
+
+- ✏️ **New Edit Button Implementation**:
+  - Edit icon (`MdEdit`) with green color scheme
+  - Appears only for Cancelled/Killed (`E`) or Completed (`C`) requests
+  - Will open Add Request form with pre-filled data (future implementation)
+  - Includes rerun module selection functionality
+
+- 🔄 **Enhanced ReRun Module Selection**:
+  - Updated dropdown with 7 proper module options:
+    1. TRT, 2. Responders, 3. Suppression, 4. Source, 5. Delivered Report, 6. TimeStamp Appending, 7. IP Appending
+  - Backend integration with error_code mapping (1-7)
+  - Database update: `SET request_status='RE', error_code={module_number}, request_validation=NULL`
+
+- 💬 **Custom Confirmation Modals**:
+  - Replaced all browser `alert()` calls with professional custom modals
+  - `ConfirmationModal` component with customizable styling
+  - Consistent UI experience across all action buttons
+  - No more "localhost says..." browser dialogs
+
+- 🎯 **Improved Visual Design**:
+  - Center-aligned table content for better readability
+  - Lighter border colors (`border-gray-100`) for subtle separation
+  - Enhanced hover effects (`hover:bg-blue-25`)
+  - Professional spacing and typography improvements
+
+**Technical Implementation:**
+```typescript
+// New Edit Button Logic
+const EditButton: React.FC<{ request: Request }> = ({ request }) => {
+  // Only show for Cancelled/Killed (E) or Completed (C) status
+  if (!['E', 'C'].includes(request.request_status)) {
+    return <span></span>;
+  }
+  // Custom modal + navigation to AddRequest form with pre-filled data
+};
+
+// Enhanced ReRun Backend Logic
+module_error_codes = {
+  'TRT': 1, 'Responders': 2, 'Suppression': 3, 'Source': 4,
+  'Delivered Report': 5, 'TimeStamp Appending': 6, 'IP Appending': 7
+}
+UPDATE requests SET request_status='RE', error_code=%s, request_validation=NULL
+```
+
+### **December 5, 2025 - FRONTEND DASHBOARD FIX ✅**
+- 🔧 **Waiting Requests Display Fix**: Fixed frontend Dashboard component missing `waiting_requests` field extraction
+- 📊 **Complete Metrics Processing**: Frontend now properly processes all 6 metrics from backend API response
+- 💾 **State Management Fix**: Updated both success and error state handling to include `waiting_requests: 0`
+- 🎯 **Data Consistency**: Dashboard UI now displays correct waiting requests count (4) matching backend data
+- ✅ **Visual Update**: Yellow "Waiting" card now shows live count instead of always showing zero
+- 🔍 **Root Cause**: Frontend was only extracting 5 metrics fields but backend was sending 6 fields
+
+**📊 Frontend Metrics Processing Now Complete:**
+```typescript
+// Before: Missing waiting_requests
+setMetrics({
+  total_requests: Number(metrics.total_requests) || 0,
+  active_requests: Number(metrics.active_requests) || 0,
+  completed_today: Number(metrics.completed_today) || 0,
+  failed_requests: Number(metrics.failed_requests) || 0,
+  avg_execution_time: Number(metrics.avg_execution_time) || 0
+});
+
+// After: Complete metrics extraction
+setMetrics({
+  total_requests: Number(metrics.total_requests) || 0,
+  active_requests: Number(metrics.active_requests) || 0,
+  waiting_requests: Number(metrics.waiting_requests) || 0, // ✅ ADDED
+  completed_today: Number(metrics.completed_today) || 0,
+  failed_requests: Number(metrics.failed_requests) || 0,
+  avg_execution_time: Number(metrics.avg_execution_time) || 0
+});
+```
+
+### **December 5, 2025 - DATABASE QUERY ALIGNMENT ✅**
+- 🔧 **Date Filter Fix**: Updated dashboard metrics API to use `created_date` instead of `request_start_time`
+- 📊 **Query Consistency**: All dashboard endpoints now use consistent date filtering logic
+- 🎯 **Accurate Counts**: Dashboard metrics now match manual database validation queries
+- 📈 **User Activity Fix**: Fixed user activity endpoint to use same date column as metrics
+- 🔍 **Debug Logging**: Added debug logging to show expected SQL query for validation
+- ✅ **Count Verification**: Dashboard API results now match `SELECT count(1), request_status FROM table WHERE created_date >= 'date' GROUP BY request_status`
+- 💾 **Consistent Standards**: All date filtering standardized on `created_date` column across all endpoints
+
+**📊 Expected Results After Fix:**
+```sql
+-- Your validation query:
+SELECT count(1), request_status FROM apt_custom_postback_request_details_dnd_test 
+WHERE created_date >= '2025-12-01 00:00:00' GROUP BY request_status;
+
+-- API should now return matching counts:
+-- Total: 76 (67+4+1+4), Active: 1, Waiting: 4, Completed: 67, Failed: 4
+```
+
+### **December 4, 2025 - DASHBOARD ENHANCEMENTS ✅**
+- 🔽 **Collapsible User Activity**: Made user activity section collapsible with expand/collapse toggle
+- ⏳ **Waiting Requests Metric**: Added new "Waiting" requests card to show requests with status 'W'
+- 📊 **Enhanced Metrics Layout**: Updated grid layout to accommodate 6 metric cards (was 5)
+- 🎯 **Better UX**: User activity now collapsed by default, expandable on demand
+- 📈 **Status Visibility**: Clear separation between Waiting, Active, Completed, and Failed requests
+- 🗂️ **Organized Layout**: Improved dashboard organization with cleaner visual hierarchy
+- 💾 **Backend Support**: Added `waiting_requests` query to dashboard metrics API endpoint
+
+### **December 4, 2025 - DATABASE SCHEMA ALIGNMENT ✅**
+- 🔧 **Column Mapping Fixed**: Updated `/add_request` endpoint to use correct PostgreSQL column names
+- 📊 **Schema Compliance**: Removed non-existent columns (`options`, `offer_option`, `bounce_option`, `cs_option`, `file_type`)
+- 🗄️ **Correct Columns Used**: Updated to use actual schema columns (`unique_decile_report_path`, `from_date`, `on_sent`, etc.)
+- 🎯 **Date Fields Fixed**: Properly map `start_date` → `from_date`, `file_path` → `unique_decile_report_path`
+- 💾 **Database Insert Success**: Form submissions now successfully create database records
+- ✅ **Production Ready**: Both `/add_request` and `/submit_form` endpoints working with correct schema
+- 🔍 **Schema Validated**: All 34 database columns properly mapped and handled
+- 📝 **Request Creation**: Proper `request_id` generation and return to frontend
+
+### **December 4, 2025 - PHASE 5.1: SIMPLE SINGLE-PAGE FORM** ✅ **FINAL**
+- 📄 **Single-Page Layout**: All 7 sections visible on one page with thin border separators
+- 🎨 **Clean Design**: White background with subtle gray dividers between sections
+- 🔢 **Numbered Sections**: Clear section numbering (1-7) with colored numbers and icons
+- ✅ **All Sections Complete**: All 7 form sections migrated and functional
+  - 1. 👤 Client Information (Blue)
+  - 2. 📅 Campaign Dates (Orange)
+  - 3. 📁 File Options (Green)
+  - 4. 📊 Report Paths (Yellow)
+  - 5. 🚫 Suppression List (Purple)
+  - 6. ⚡ Data Priority Settings (Indigo)
+  - 7. 💻 SQL Query (Pink)
+- 🎯 **Simple Navigation**: Scroll through form naturally, no collapsing needed
+- 📝 **Full Validation**: React Hook Form + Yup validation integrated
+- 💾 **Conditional Fields**: Dynamic field display based on user selections
+- 🚀 **Production Ready**: Clean, professional, easy to use
+
+**Design Philosophy:**
+- ✅ Single continuous form - no accordion complexity
+- ✅ Thin border lines separate sections (`border-b border-gray-200`)
+- ✅ Color-coded section headers for visual organization
+- ✅ All content visible at once - no hidden sections
+- ✅ Professional and straightforward user experience
+- ✅ Mobile responsive layout
+
+**Component:**
+- `AddRequestFormSimple.tsx` - Complete single-page form (~700 lines)
+
+**Next Steps:**
+- Add file upload functionality for Report Paths section (Phase 5.2)
+- Create backend upload & validation API (Phase 5.3)
+
+### **December 4, 2025 - TABLE HEADER ENHANCEMENT ✅**
 - ⬆️⬇️ **Center Alignment**: Changed table cells from `align-top` to `align-middle` for vertical center alignment
 - 🎯 **Balanced Layout**: Content now centered vertically within cells for professional appearance
 - 🔘 **Action Buttons**: Updated button container from `items-start` to `items-center` for perfect vertical centering
 - 📊 **Consistent Alignment**: All content (text, badges, buttons) now vertically centered in their cells
-- 👁️ **Visual Balance**: Better visual hierarchy with centered content throughout the table
-- ✨ **Professional Look**: Modern, balanced table design with proper vertical spacing
+- 👁️ **Visual Balance**: Modern, balanced table design with proper vertical spacing
 
 ### **December 4, 2025 - TABLE HEADER ENHANCEMENT ✅**
 - 📏 **Bottom Border Added**: Added prominent 2px bottom border to table header (`border-b-2 border-gray-400`)
@@ -396,148 +552,7 @@ Campaign-Attribution-Management/
 
 ### **December 4, 2025 - CUSTOM CANCEL CONFIRMATION DIALOG ✅**
 - 💬 **Professional Confirmation Modal**: Replaced browser's `window.confirm()` with custom modal dialog
-- 🚫 **Eliminated "localhost says..."**: No more browser-specific confirmation messages
-- 🎨 **Modern UI Design**: Clean modal with overlay, proper styling, and clear messaging
-- 📝 **Better UX**: Shows request ID, warning message, and clear Yes/No action buttons
-- ⚡ **Consistent Experience**: Matches logout dialog style for uniform user experience
-- 🎯 **Action Clarity**: "Yes, Cancel" and "No" buttons with proper color coding (red for cancel action)
-- 💾 **Loading States**: Shows "Cancelling..." feedback while processing the request
-
-### **December 4, 2025 - ICON-BASED ACTION BUTTONS ✅**
-- 🎨 **Icon Migration Complete**: All action buttons converted from text to professional icons using React Icons (Material Design)
-- ⊗ **Cancel Button**: Red MdCancel icon with light red background
-- ⟲ **ReRun Button**: Blue MdRefresh icon with dropdown menu for Type1/Type2/Type3 selection
-- 👁️ **View Button**: Gray MdVisibility eye icon for viewing request details
-- 📊 **Metrics Button**: Green MdBarChart statistics icon (renamed from Download)
-- 📎 **Upload Button**: Purple MdAttachFile paperclip icon for file uploads
-- 🎯 **Consistent Design**: All icons sized at 20px (w-5 h-5) with matching light backgrounds and borders
-- 📏 **Optimized Spacing**: Maintained 4px gap between buttons for clean visual separation
-- ⚡ **Better UX**: Tooltips on hover show action descriptions, icons are more intuitive than text
-- 💾 **Space Efficient**: Icon buttons take less horizontal space, allowing more data visibility
-
-### **December 2, 2025 - REQUEST MONITOR TABLE UI IMPROVEMENTS ✅**
-- 📐 **Perfect Header-Content Alignment**: Synchronized header and content padding to `py-1` for exact alignment
-- 📊 **Ultra-Compact Design**: Uniform `py-1` padding for both headers and content cells for maximum data density
-- 🎨 **Clean Borders**: Removed vertical borders from content cells, keeping only horizontal borders for cleaner appearance
-- 📋 **Enhanced Readability**: Maintained header borders while simplifying content cell styling  
-- ⚡ **Maximum Data Density**: Significantly more requests visible per screen with ultra-compact design
-- 🎯 **Professional Styling**: Clean, minimal table design with improved visual hierarchy
-- ↰ **Left-Aligned Actions**: Changed action buttons from center to left alignment for better visual flow
-- 🔄 **User-Friendly Terminology**: Changed "Kill" button to "Cancel" with updated confirmation messages
-- 📏 **Consistent Vertical Alignment**: Added `align-top` to all cells and `items-start` for action buttons for perfect alignment
-- 🔲 **Optimal Button Spacing**: Set 4px spacing between action buttons using `space-x-1` for comfortable visual separation
-- 🎪 **Center-Aligned Headers**: Changed all table header text from left to center alignment for professional appearance
-
-### **December 2, 2025 - DASHBOARD CONFIGURATION & REFRESH OPTIMIZATION ✅**
-- ⚙️ **Configuration Integration**: Dashboard now uses app.yaml configuration for all settings
-- 🔄 **Refresh Interval Updated**: Changed from 30 seconds to 5 minutes (300000ms) for better performance
-- 📋 **Configuration Structure**: All dashboard settings centralized in app.yaml:
-  - `dashboard.refresh.interval: 300000` # 5 minutes auto-refresh
-  - `dashboard.dateFilter.default: 'wtd'` # Week to Date default filter
-  - `dashboard.alerts.longRunningThreshold: 7200` # 2 hours threshold
-- 🎯 **Production Optimization**: Reduced server load with longer refresh intervals
-- 📊 **Configurable Settings**: Easy adjustment of refresh rates without code changes
-- ✅ **Clean Implementation**: Removed separate configManager, using app.yaml directly as configuration source
-
-### **December 2, 2025 - DASHBOARD IMPLEMENTATION FULLY COMPLETE ✅**
-- 🎉 **Final Success**: Dashboard now fully operational with all features working perfectly!
-- ✅ **User Activity Section**: Added complete user activity panel with real-time data from `/api/dashboard/users`
-- 🧹 **Production Ready**: Removed all debug messages and test components for clean production code
-- 📊 **Complete Feature Set**: 
-  - 5 essential metrics cards with real-time data ✅
-  - User activity panel with performance metrics ✅
-  - Week to Date filtering with backend integration ✅
-  - Auto-refresh every 30 seconds ✅
-  - Professional UI with proper error handling ✅
-- 🔧 **Clean Implementation**: 
-  - Removed test routes and debug components
-  - Clean production routing structure
-  - Professional user interface without debug panels
-- 🚀 **Phase 4 Complete**: Campaign Attribution Management Analytics dashboard fully deployed and production-ready
-- 🎯 **All Features Working**: Metrics, user activity, date filtering, auto-refresh, and backend integration all operational
-
-### **December 2, 2025 - Dashboard Debugging and Resolution Process**
-- 🎉 **Success**: All dashboard routes now working perfectly!
-- 🔧 **Root Cause**: Complex nested routing structure was interfering with route matching
-- 🧪 **Solution**: Systematic debugging approach with multiple test routes successfully isolated the issue
-- ✅ **Confirmed Working**: 
-  - `/dashboard` - Full production route with authentication and layout ✅
-  - All routing, authentication, and layout components functioning properly ✅
-  - Dashboard component rendering with backend integration ✅
-- 🚀 **Production Ready**: Dashboard now fully operational with:
-  - Week to Date metrics filtering
-  - Auto-refresh every 30 seconds
-  - Real-time backend API integration
-  - Professional UI with error handling
-- 🎯 **Phase 4 Complete**: Campaign Attribution Management Analytics dashboard fully deployed
-
-### **December 1, 2025 - Dashboard UI Rendering Issue Resolution Attempts**
-- 🔧 **Dashboard Rendering Fixed**: Completely resolved UI rendering issue that was preventing dashboard from loading
-- 🧹 **Component Cleanup**: Removed complex useCallback dependencies and console.log statements that were causing infinite loops
-- 📊 **Simplified Architecture**: Streamlined Dashboard component with clean, working date filtering functionality
-- ⚡ **Performance Optimized**: Eliminated useCallback dependency array issues and unnecessary state checks
-- 🎯 **Production Ready**: Dashboard now renders properly with working metrics, auto-refresh, and date filtering
-- ✅ **Backend Integration**: Maintained full API integration with simplified frontend component structure
-- 🚀 **User Experience**: Clean, professional dashboard interface with Week to Date filtering and 30-second auto-refresh
-
-### **November 28, 2025 - Dashboard Analytics Optimization & Production Readiness**
-- 📊 **Title Optimization**: Updated main title from "Dashboard" to "Campaign Attribution Management Analytics"
-- 📅 **Advanced Date Filtering**: Implemented comprehensive date filter system with 5 options:
-  - **Week to Date** (Monday to current day) - Default selection
-  - **This Week** (Monday to Sunday)
-  - **This Month** (First day to last day of current month)
-  - **Month to Date** (First day of month to current day)
-  - **Year to Date** (January 1st to current day)
-  - **Custom Range** (Future enhancement for date picker)
-- 📈 **Optimized Metrics Layout**: Reduced from 6 cards to 5 focused metrics with better grid layout
-- 🗑️ **System Status Removal**: Eliminated system status monitoring (not needed in production environment)
-- 💾 **System Resources Cleanup**: Removed Windows-specific disk monitoring (preparing for Linux deployment)
-- 👥 **Enhanced User Activity**: User analytics now follow same date filtering as main metrics
-- 🎯 **Production Architecture**: Optimized for Linux deployment with separate database and application partitions
-- ⚡ **Performance Focus**: Streamlined component structure for better loading and responsiveness
-- 🔄 **Dynamic Filtering**: All metrics automatically update based on selected date range
-- 🎨 **Clean Interface**: Simplified 2-column layout with focused analytics and quick actions
-
-### **November 28, 2025 - Dashboard Backend Integration Complete**
-- 📊 **Live Data Integration**: Dashboard now fully integrated with backend APIs using real database data
-- 🔄 **Real-time Analytics**: Auto-refresh every 30 seconds with manual refresh capability
-- 📈 **Comprehensive Metrics**: 6 key metric cards with live data (Total Requests, Active, Completed Today, Failed, Avg Exec Time, TRT Today)
-- 🚨 **Live Alert System**: Real-time alerts for long-running requests (>2 hours) and system health warnings
-- 👥 **User Activity Analytics**: 30-day user performance metrics with success rates and execution times
-- 🔧 **System Monitoring**: Live system status including database response time, processing queue, and resource usage
-- ⚡ **Health Check Integration**: Live system diagnostics with database connectivity and API health validation
-- 📊 **Data Visualization Ready**: Backend APIs provide TRT volume and processing time trend data for future chart implementation
-- 🎯 **Production Ready**: Full backend integration with error handling, loading states, and graceful fallbacks
-- 💾 **Database Driven**: All dashboard data sourced directly from PostgreSQL database with proper query optimization
-- 📱 **Professional UI**: Clean, responsive dashboard interface with Tailwind CSS styling
-- 🔄 **Robust Error Handling**: Graceful error states and loading indicators for optimal user experience
-
-### **November 28, 2025 - Authentication Restored to Production Mode**
-- 🔒 **Authentication Re-enabled**: Removed test mode bypass and restored normal login flow
-- 👤 **Secure Login**: Users must now authenticate with database credentials to access application
-- 🛡️ **Session Management**: Restored proper session validation and management
-- 🔧 **API Integration**: Re-enabled all authentication API calls for production operation
-- 📊 **Dashboard Access**: Dashboard now requires proper authentication like other pages
-- ✅ **Production Ready**: Authentication system back to production standards
-- 🔑 **Database Login**: Login credentials validated against `apt_custom_apt_tool_user_details_dnd` table
-
-### **November 28, 2025 - Phase 4 Dashboard Complete & Authentication Restored**
-- 📊 **Dashboard Implementation Complete**: Professional dashboard interface with comprehensive layout ready for backend integration
-- 📈 **Sample Data Display**: All dashboard components working with realistic sample data
-- ⏱️ **Professional Design**: Clean layout with metrics cards, status panels, and user activity
-- 🔒 **Authentication Restored**: Normal login flow re-enabled - users must authenticate to access application
-- 👥 **Interactive Elements**: Working navigation, health check, and quick action buttons
-- 🔧 **Frontend Complete**: All dashboard UI components implemented and styled
-- 🎯 **Navigation Integration**: Seamless integration with Add Request and Request Monitor
-- 🔄 **Ready for Backend**: Complete UI ready for live API integration when backend APIs are implemented
-- 💾 **Production Ready**: Normal authentication flow with secure session management
-- 📱 **Responsive Layout**: Professional dashboard design optimized for all screen sizes
-- ⚡ **Performance Optimized**: Fast loading dashboard with proper authentication flow
-- 📊 **Visual Polish**: Complete dashboard analytics interface with professional styling
-
-### **November 28, 2025 - Custom Logout Modal & Final Polish**
-- 💬 **Custom Modal Dialog**: Replaced browser's `window.confirm()` with professional custom modal
-- 🚫 **Eliminated "localhost says"**: No more browser-specific confirmation prefixes
+- 🚫 **Eliminated "localhost says..."**: No more browser-specific confirmation prefixes
 - 🎨 **Professional UI**: Clean modal with logout icon, clear messaging, and hover effects
 - 📝 **User-Friendly Text**: Simple "Do you still want to logout?" with Cancel/Logout buttons
 - 🔒 **Better UX**: Modal overlay with proper focus management and responsive design
@@ -559,80 +574,23 @@ Campaign-Attribution-Management/
 ### **November 28, 2025 - MainContent Background Elimination**
 - 🎯 **Background Container Removal**: Eliminated all background styling from MainContent component that was creating centered layout
 - 📐 **Direct Content Rendering**: Removed inner div wrapper that was constraining content width
-- 🗂️ **Transparent MainContent**: MainContent now acts as transparent positioning layer without any visual styling
+- 🗄️ **Transparent MainContent**: MainContent now acts as transparent positioning layer without any visual styling
 - 📱 **Full Width Achievement**: Content now uses absolute full width from sidebar to screen edge without containers
 - ⚡ **Layout Simplification**: Eliminated the "page content" paradigm in favor of direct full-width rendering
 - 🎨 **Teams-like Structure**: Achieved true two-element layout (sidebar + direct content) without background areas
 
-### **November 28, 2025 - Full Width Content Utilization**
-- 🎯 **Complete Background Removal**: Eliminated white background container from RequestLogs component
-- 📐 **Full Width Table**: Table content now uses absolute full width from sidebar to screen edge
-- 🗂️ **Fragment Container**: Replaced div container with React fragment for direct content rendering
-- 📱 **Maximum Space Usage**: No background containers limiting table width - direct full-width utilization
-- ⚡ **Edge-to-Edge Content**: Table, search, and pagination now span the complete available width
-- 🎨 **Teams-like Layout**: Achieved exact two-element layout (sidebar + full-width content) like Microsoft Teams
-
 ### **November 28, 2025 - Complete Gap Elimination**
 - 🎯 **Zero Gray Gap**: Eliminated all gray space between sidebar and table content
 - 📐 **Exact Alignment**: MainContent left padding set to exact sidebar width (240px)
-- 🗂️ **Container Removal**: Removed white rounded container, shadows, and borders from RequestLogs
-- 📱 **Edge-to-Edge Table**: Table content now starts immediately after sidebar with no visual gap
-- ⚡ **Maximum Width**: Table utilizes full available screen width from sidebar to right edge
-- 🎨 **Clean Layout**: No more white container creating artificial spacing constraints
-
-### **November 28, 2025 - Table Width Optimization**
-- 📐 **Increased Table Width**: Reduced gap between sidebar and table content from 240px to 244px (only 4px separation)
-- 🗂️ **Removed Container Margins**: Eliminated `m-2` margin from RequestLogs container for maximum width utilization
-- 📱 **Minimal Right Padding**: Reduced right padding to 4px for better edge spacing
-- ⚡ **Space Maximization**: Table now uses maximum available screen width for better data visibility
-- 🎯 **Optimized Layout**: Enhanced content area utilization while maintaining visual separation from sidebar
-
-### **November 28, 2025 - Black Bold Header Styling**
-- ⚫ **Black Font Headers**: Changed table header text back to bold black color (`text-black font-bold`) on light gray background
-- 🎨 **High Contrast**: Black text on gray background for maximum readability and professional appearance
-- 🔷 **Gray Borders**: Clean gray border styling (`border-gray-300`) for professional consistency
-- ⚡ **Classic Look**: Clean, traditional styling with excellent readability and professional appearance
-
-### **November 28, 2025 - Professional Table Styling & UI Polish**
-- 🎨 **Gray Background**: Changed main content area to professional gray background (`bg-gray-100`)
-- 🗂️ **Table Borders**: Added complete table borders with proper cell separation for better readability
-- 📝 **Table Padding**: Increased cell padding (`py-4`) for better spacing and visual comfort
-- 🔤 **Bold Headers**: Made table headers black and bold (`text-black font-bold`) for better contrast
-- 📊 **Actions Column**: Fixed Actions column width (`w-60`) to properly accommodate all buttons
-- 🎯 **Button Alignment**: Centered action buttons with `justify-center` for consistent alignment
-- 📱 **Container Styling**: Added white rounded container with shadow for professional appearance
-- 🔍 **Search Padding**: Added proper padding to search controls area
-- ⚡ **Visual Enhancement**: Improved overall table readability and professional appearance
-
-### **November 28, 2025 - Comprehensive Layout Fix - All Pages Aligned**
-- 🎯 **Universal Gap Resolution**: Eliminated sidebar gaps across ALL pages (RequestLogs, AddRequest, Dashboard)
-- 📐 **Consistent Alignment**: All content now starts immediately after the sidebar with 0px gap
-- 🔧 **RequestLogs Page**: Fixed MainContent and table column padding for perfect alignment
-- 📝 **AddRequest Page**: Removed container and form padding (`p-8` → `pl-0 pr-8 py-8`, `p-6` → `pl-0 pr-6 py-6`)
-- 🎛️ **AddRequestForm Component**: Fixed nested padding issues in form container and form element
-- 📊 **Dashboard Page**: Removed left padding (`p-12` → `pl-0 pr-12 py-12`) for consistent spacing
-- 🎨 **Maintainer Professional**: Kept right and vertical padding for proper content spacing and aesthetics
-- ⚡ **Consistent UX**: All pages now have uniform spacing behavior and maximum space utilization
-
-### **November 28, 2025 - Final Layout Fix - Sidebar Gap Eliminated**
-- 🎯 **Gap Resolution**: Completely eliminated the gap between sidebar and table content
-- 📐 **Precise Alignment**: RequestId column now starts immediately after the sidebar (0px gap)
-- 🔧 **MainContent Fix**: Adjusted left padding to exact sidebar width (240px) with no right padding
-- 📊 **Table Positioning**: Removed left padding from first column (RequestId) for edge-to-edge alignment
-- 🎨 **Search Controls**: Aligned search bar and controls with table content (no left padding)
-- 📱 **Pagination Alignment**: Fixed pagination to align perfectly with table content
-- ⚡ **Space Utilization**: Table now uses maximum available width without unnecessary gaps
-
-### **November 27, 2025 - Layout Optimization & API Fixes**
-- 🎨 **Layout Resolution**: Eliminated gray background gap between sidebar and content area 
-- 📐 **Content Spacing**: Optimized main content padding for better space utilization (244px left padding)
-- 🔧 **Background Fix**: Changed main content from gray gradient to clean white background
-- 🗄️ **Database Query Correction**: Fixed SQL query error - `execution_time` now correctly referenced from requests table (table 'a') instead of qa_stats table (table 'c')
+- 🗄️ **Database Query Fix**: Fixed SQL query error - `execution_time` now correctly referenced from requests table (table 'a') instead of qa_stats table (table 'c')
 - 💾 **Client Name Formatting**: Updated to LogStreamr format with proper capitalization (UPPER(LEFT) + LOWER(SUBSTRING))
 - 📊 **TRT Count Fix**: Ensured proper retrieval of `RLTP_FILE_COUNT` from qa_stats table via LEFT JOIN
-- 🎯 **Table Layout**: Improved RequestLogs table to use full available width without unnecessary flex wrappers
-- 📱 **Responsive Content**: Enhanced table container height calculation for better viewport utilization
-- ⚡ **API Performance**: Resolved "column c.execution_time does not exist" database error that was preventing data loading
+- 🎨 **Layout Optimization**: Eliminated excessive gray background spacing and padding issues
+- 🐛 **Syntax Error Fix**: Resolved duplicate code and compilation errors in RequestLogs component
+- 🔄 **Header Names**: Updated to exact specifications (RequestId, AddedBy, TRTCount, ExecTime, etc.)
+- 🎛️ **Button Spacing**: Fixed action button alignment with consistent spacing
+- 💾 **Component Cleanup**: Reverted over-styled components back to clean, professional appearance
+- ⚡ **Performance**: Optimized component structure for better rendering
 
 ### **November 27, 2025 - Phase 3 Polish & Bug Fixes**
 - 🔧 **Sticky Header Fix**: Resolved issue where action buttons appeared in header area during scroll
@@ -665,3 +623,441 @@ Campaign-Attribution-Management/
 - 📊 Improved TRT count display from qa_stats table
 - 🔄 Enhanced database query structure matching LogStreamr
 - ⚡ Better performance with optimized component structure
+
+---
+
+## 🔧 **REQUEST PROCESSING SYSTEM - SCRIPTS FOLDER**
+
+### **📁 SCRIPTS Folder Overview**
+The SCRIPTS folder contains the complete backend processing system that handles request execution after UI submission. This system runs independently from the web application and provides the core functionality for campaign attribution processing.
+
+### **🚀 Request Processing Workflow**
+
+#### **1. Request Initiation Process**
+```bash
+# Manual initiation (current process)
+sh -x ./SCRIPTS/requestPicker.sh &
+```
+
+**Process Flow:**
+1. **UI Submission** → Request stored in database with status 'W' (Waiting)
+2. **Manual Execution** → `requestPicker.sh` launched manually
+3. **Request Validation** → Python validation script checks request integrity
+4. **Processing Pipeline** → Multi-stage shell script execution
+5. **Status Updates** → Real-time database updates throughout process
+
+#### **2. Core Processing Scripts Workflow**
+
+```mermaid
+graph TD
+    A[requestPicker.sh] --> B[Request Validation]
+    B --> C[requestConsumer.sh]
+    C --> D[trtPreparation.sh]
+    D --> E[suppressionList.sh]
+    E --> F[srcPreparation.sh]
+    F --> G[deliveredScript.sh]
+    G --> H[Completion/Notification]
+```
+
+### **📋 Main Script Functions**
+
+#### **🎯 requestPicker.sh**
+- **Purpose**: Main daemon script that monitors for new requests
+- **Functionality**:
+  - Checks running request count (max 10 concurrent)
+  - Selects next request with status 'W', 'RE', or 'RW'
+  - Triggers request validation via `requestValidation.py`
+  - Launches `requestConsumer.sh` for valid requests
+- **Database Monitoring**: Continuous polling of `APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND`
+
+#### **🔧 requestConsumer.sh**
+- **Purpose**: Main consumer script that sets up request processing environment
+- **Functionality**:
+  - Creates request-specific directory structure under `/REQUEST_PROCESSING/{REQUEST_ID}/`
+  - Copies all necessary scripts to request-specific location
+  - Updates request status to 'R' (Running)
+  - Launches `trtPreparation.sh` with logging
+- **Directory Structure Created**:
+  ```
+  REQUEST_PROCESSING/{REQUEST_ID}/
+  ├── FILES/     # Data files
+  ├── SPOOL/     # Temporary files  
+  ├── LOGS/      # Processing logs
+  ├── ETC/       # Configuration files
+  └── SCRIPTS/   # Request-specific scripts
+  ```
+
+#### **📊 trtPreparation.sh (Module 1)**
+- **Purpose**: Prepares TRT (Treatment) data tables and starts report generation
+- **Functionality**:
+  - Sets request status to 'R' and records start time
+  - Creates TRT report tables based on client configuration
+  - Handles subsegmentation logic (Y/N)
+  - Launches parallel responder pulling scripts
+  - Error handling with automatic rollback
+
+#### **🚫 suppressionList.sh (Module 3)**
+- **Purpose**: Applies suppression rules to TRT data
+- **Functionality**:
+  - Processes client suppression files
+  - Creates temporary suppression tables
+  - Removes suppressed records from TRT data
+  - Updates suppression count statistics
+  - Handles both email-based and request-ID-based suppression
+
+#### **🗂️ srcPreparation.sh (Module 4)**
+- **Purpose**: Prepares source data for campaign execution
+- **Functionality**:
+  - Creates SRC (Source) tables for campaign delivery
+  - Applies decile-based segmentation logic (N/Y subsegmentation)
+  - Handles priority-based record selection with file and percentage
+  - Manages client-specific logic (Verizon has unique key requirements)
+  - Generates final delivery tables with proper constraints
+  - Supports Type 1 (decile_wise_report_path) and Type 2 (unique_decile_report_path)
+  - Integrates with bounce handling and IP append requirements
+
+#### **📧 deliveredScript.sh (Module 5)**
+- **Purpose**: Processes delivered data and generates final reports
+- **Functionality**:
+  - Creates postback (PB) table structure from SRC table template
+  - Removes constraints and alters table for delivered data processing
+  - Adds campaign tracking fields: campaign, subject, creative, open_date, click_date, unsub_date
+  - Adds technical fields: diff, offerid, ip, timestamp
+  - Processes CPM report data and integrates with delivered records
+  - Handles postback data merging and deduplication
+  - Creates final attribution reports for client consumption
+
+#### **⏱️ timestampAppending.sh (Module 6)**
+- **Purpose**: Adds realistic timestamps to delivered records
+- **Functionality**:
+  - Reads timestamp configuration from TIMESTAMP_REPORT_PATH
+  - Calculates delivery rate per second based on date ranges
+  - Uses Java TimeStampGenerator.jar for realistic timestamp distribution
+  - Applies timestamp variance (±5 to +8 per second) for natural delivery patterns
+  - Updates delivered table with calculated timestamps
+  - Ensures timestamp consistency across campaign delivery windows
+
+#### **🌐 ipAppending.sh (Module 7)**
+- **Purpose**: Assigns IP addresses to delivered records
+- **Functionality**:
+  - Updates existing records with previously used IPs from OLD_IP_TABLE
+  - Identifies records needing new IP assignments (opens without IPs)
+  - Randomly selects unused IPs from NEW_IP_TABLE
+  - Creates temporary REPLACE_IP_TABLE for IP assignment tracking
+  - Updates delivered table with new IP assignments
+  - Maintains IP uniqueness and realistic usage patterns
+  - Tracks newly added IP count in qa_stats table
+
+#### **📊 respondersPulling.sh (Module 2)**
+- **Purpose**: Parallel data processing for responder information
+- **Functionality**:
+  - Extracts creative IDs and offer IDs from report tables
+  - Determines date ranges for data processing (min/max delivery dates)
+  - Pulls responder data from external systems in parallel with TRT processing
+  - Processes campaign performance data for attribution
+  - Runs concurrently with trtPreparation.sh for efficiency
+  - Handles creative and offer-based segmentation
+
+### **🔧 Supporting Scripts**
+
+#### **✅ requestValidation.py**
+- **Purpose**: Comprehensive request validation before processing
+- **Functionality**:
+  - Validates CPM report file paths and accessibility
+  - Checks date ranges and format consistency
+  - Validates client configuration and table existence
+  - Performs data type validation for all form fields
+  - Generates HTML validation reports via email
+  - Updates request_validation status ('Y'/'N'/'V' for failed)
+  - Connects to multiple data sources (PostgreSQL, Presto, Impala)
+
+#### **📧 sendMail.sh & sendMail2.sh**
+- **Purpose**: Email notification system for request status
+- **Functionality**:
+  - Generates HTML-formatted status reports
+  - Sends notifications for request completion, errors, and warnings
+  - Includes comprehensive request metrics and QA statistics
+  - Formats data in professional HTML tables with styling
+  - Sends to configurable recipient lists based on client/user
+  - Integrates with all modules for status notifications
+
+#### **🗑️ purgeScript.sh**
+- **Purpose**: Cleanup and maintenance operations
+- **Functionality**:
+  - Removes temporary tables and files after request completion
+  - Cleans up request-specific directory structures
+  - Archives completed request data based on retention policies
+  - Frees up disk space and database resources
+  - Maintains system performance and storage efficiency
+
+#### **🔄 trtDrop.sh**
+- **Purpose**: Cleanup TRT tables and related objects
+- **Functionality**:
+  - Drops TRT tables after successful source preparation
+  - Removes temporary indexes and constraints
+  - Cleans up intermediate processing objects
+  - Manages disk space during processing pipeline
+
+### **📋 Complete Processing Workflow**
+
+```
+requestPicker.sh
+    ↓
+requestValidation.py ← Validates all inputs, paths, dates, client config
+    ↓
+requestConsumer.sh ← Sets up environment, copies scripts
+    ↓
+trtPreparation.sh (Module 1) ← Creates TRT tables, launches responders
+    ├── respondersPulling.sh (Module 2) ← Parallel processing
+    ↓
+suppressionList.sh (Module 3) ← Applies suppressions
+    ↓
+srcPreparation.sh (Module 4) ← Creates source tables
+    ↓
+deliveredScript.sh (Module 5) ← Creates postback tables
+    ↓
+timestampAppending.sh (Module 6) ← Adds timestamps (if enabled)
+    ↓
+ipAppending.sh (Module 7) ← Adds IP addresses (if enabled)
+    ↓
+sendMail.sh ← Final notification
+    ↓
+purgeScript.sh ← Cleanup (optional)
+```
+
+### **🎯 Module Error Codes & Rerun Logic**
+
+Each module has specific error codes for targeted rerun capability:
+
+| Module | Error Code | Rerun From |
+|--------|------------|------------|
+| TRT | 1 | trtPreparation.sh |
+| Responders | 2 | respondersPulling.sh |
+| Suppression | 3 | suppressionList.sh |
+| Source | 4 | srcPreparation.sh |
+| Delivered Report | 5 | deliveredScript.sh |
+| TimeStamp Appending | 6 | timestampAppending.sh |
+| IP Appending | 7 | ipAppending.sh |
+
+### **💾 Data Flow & Table Management**
+
+**Primary Tables Created:**
+- `APT_CUSTOM_{REQUEST_ID}_{CLIENT}_{WEEK}_TRT_TABLE` - Treatment/TRT data
+- `APT_CUSTOM_{REQUEST_ID}_{CLIENT}_{WEEK}_SRC_TABLE` - Source delivery data  
+- `APT_CUSTOM_{REQUEST_ID}_{CLIENT}_{WEEK}_PB_TABLE` - Postback/delivered data
+- `APT_CUSTOM_{REQUEST_ID}_{CLIENT}_REPORT_TABLE` - CPM report data
+- `APT_CUSTOM_{REQUEST_ID}_{CLIENT}_SUPP_TABLE` - Suppression data (temp)
+
+**Data Sources:**
+- **PostgreSQL**: Main request processing and client configuration
+- **Presto**: Large-scale data queries and analytics
+- **Impala**: Performance analysis and reporting
+- **MySQL**: Legacy client-specific data integration
+
+### **⚡ Performance Optimizations**
+
+- **Parallel Processing**: TRT and Responders run concurrently
+- **Indexing Strategy**: Dynamic index creation based on data volume
+- **Memory Management**: Table partitioning for large datasets
+- **Connection Pooling**: Efficient database connection management
+- **Temporary Objects**: Strategic use of temporary tables and cleanup
+
+### **🚨 Error Handling & Recovery**
+
+- **Automatic Rollback**: Failed modules trigger automatic cleanup
+- **Status Tracking**: Real-time status updates in database
+- **Email Alerts**: Immediate notification of failures with detailed logs
+- **Partial Restart**: Ability to restart from any module using error codes
+- **Log Aggregation**: Centralized logging in `{REQUEST_ID}/LOGS/` directory
+
+### **⚙️ Configuration Management**
+
+#### **📄 config.properties**
+Central configuration file containing:
+- Database connection strings (PostgreSQL, Presto, Impala, MySQL)
+- Directory path configurations
+- Table name mappings
+- Client-specific settings
+
+#### **🔗 Database Connections**
+- **Primary**: PostgreSQL for main request processing
+- **Secondary**: Presto for big data queries
+- **Analytics**: Impala for performance analysis
+- **Legacy**: MySQL for client-specific data
+
+### **🚨 Process Management & Cancellation**
+
+#### **Current Kill Process**
+```bash
+# Find all processes for a request ID
+ps -aef | grep {request-id}
+
+# Example output for request 6989:
+techteam 3014997 ... sh -x requestConsumer.sh 6989
+techteam 3015093 ... sh -x trtPreparation.sh 6989  
+techteam 3043835 ... sh -x suppressionList.sh 6989
+techteam 3043986 ... sh -x srcPreparation.sh 6989
+techteam 3117318 ... psql -U datateam ... (SQL execution)
+
+# Kill all processes
+kill -9 3014997 3015093 3043835 3043986 3117318
+```
+
+#### **⚡ Enhanced Kill System Requirements**
+
+**Current UI Kill Logic:**
+- UI calls `/api/requests/{id}/kill` endpoint
+- Backend updates database status to 'E' (Error/Cancelled)
+- **Gap**: No actual process termination occurs
+
+**Enhanced Kill System Design:**
+1. **Process Tracking**: Store process IDs in database during execution
+2. **Hierarchical Kill**: Terminate parent and all child processes
+3. **Cleanup**: Remove temporary files and rollback partial changes
+4. **Status Update**: Mark request as cancelled with edit capability
+5. **Notification**: Alert user of successful cancellation
+
+**Implementation Strategy:**
+```python
+# Enhanced kill endpoint
+@app.route('/api/requests/<int:request_id>/kill', methods=['POST'])
+def kill_request_enhanced(request_id):
+    # 1. Find all processes for request ID
+    processes = find_request_processes(request_id)
+    
+    # 2. Kill processes hierarchically
+    for pid in processes:
+        os.system(f"kill -9 {pid}")
+    
+    # 3. Update database status
+    update_request_status(request_id, 'E', 'Request Cancelled by User')
+    
+    # 4. Enable edit mode
+    return jsonify({'success': True, 'edit_enabled': True})
+```
+
+### **📋 IMPROVED REQUEST CANCELLATION DESIGN SUMMARY**
+
+#### **🎯 Solutions to User Concerns**
+
+**1. Multiple Inserts Issue - SOLVED ✅**
+- **OLD**: Multiple rows per request (one per child process)
+- **NEW**: Single row per request with comma-separated PIDs
+- **Benefit**: Cleaner data, easier management, no duplicate tracking
+
+**2. Re-run Scenario Handling - SOLVED ✅**
+- **Strategy**: Clear existing PIDs, append new ones
+- **Function**: `clear_and_restart_tracking()` 
+- **Behavior**: New processes replace old tracking data
+- **No PID Conflicts**: Previous dead processes cleaned, fresh start
+
+**3. Status Completion Tracking - SOLVED ✅**
+- **Added**: `mark_request_completed()` function
+- **Added**: `mark_request_failed()` function  
+- **Integration**: Called from final script modules
+- **Status Updates**: RUNNING → COMPLETED/ERROR/KILLED
+
+**4. Shell-Based Kill Script - IMPLEMENTED ✅**
+- **File**: `SCRIPTS/cancelRequest.sh` (dedicated script)
+- **UI Integration**: Backend calls shell script via subprocess
+- **Professional**: Logging, error handling, configuration-driven
+- **Robust**: Handles comma-separated PIDs, child processes, fallbacks
+
+#### **🔧 Implementation Benefits**
+
+**Database Efficiency:**
+- Single record per request (vs multiple rows)
+- Comma-separated PID storage (`"123,456,789"`)
+- Primary key on request_id for fast lookups
+- Reduced database storage and query complexity
+
+**Re-run Handling:**
+```sql
+-- Clear old PIDs and restart with new process
+UPDATE apt_custom_request_process_tracking 
+SET process_ids = '789',  -- New PID only
+    status = 'RUNNING',
+    current_module = 'TRT'
+WHERE request_id = 6989;
+```
+
+**Status Lifecycle Management:**
+```
+W (Waiting) → R (Running) → C (Completed) ✅
+                         → E (Error/Killed) ✅
+```
+
+**Professional Kill Script:**
+- Dedicated `cancelRequest.sh` in SCRIPTS folder
+- Database configuration driven
+- Comprehensive logging and error handling
+- Graceful fallback when tracking table is empty
+- Child process termination before parent
+
+#### **🚀 Usage Examples**
+
+**Normal Request Flow:**
+```bash
+# 1. TRT Module starts
+append_process_id 6989 "TRT"           # process_ids: "123"
+
+# 2. Suppression Module starts  
+append_process_id 6989 "SUPP"          # process_ids: "123,456" 
+
+# 3. Source Module starts
+append_process_id 6989 "SRC"           # process_ids: "123,456,789"
+
+# 4. Request completes
+mark_request_completed 6989            # status: "COMPLETED"
+```
+
+**Re-run Request Flow:**
+```bash
+# 1. User reruns from SRC module (error_code=4)
+clear_and_restart_tracking 6989 "SRC" # process_ids: "999" (fresh start)
+
+# 2. Delivered Module starts
+append_process_id 6989 "DEL"           # process_ids: "999,888"
+
+# 3. Request completes  
+mark_request_completed 6989            # status: "COMPLETED"
+```
+
+**Cancellation Flow:**
+```bash
+# 1. User clicks Cancel in UI
+# 2. Backend calls: ./SCRIPTS/cancelRequest.sh 6989
+# 3. Script reads PIDs: "123,456,789"
+# 4. Kills all processes and children
+# 5. Updates status: "KILLED"
+# 6. UI enables Edit button
+```
+
+#### **📊 Database Schema Comparison**
+
+**OLD (Multiple Records):**
+```sql
+request_id | module_name | process_id | status
+6989       | TRT        | 123        | RUNNING
+6989       | SUPP       | 456        | RUNNING  
+6989       | SRC        | 789        | RUNNING
+```
+
+**NEW (Single Record):**  
+```sql
+request_id | process_ids | current_module | status
+6989       | 123,456,789 | SRC           | RUNNING
+```
+
+#### **💡 Key Improvements**
+
+✅ **No Multiple Inserts** - Single record approach  
+✅ **Re-run Safe** - Clear and restart strategy  
+✅ **Status Tracking** - Complete lifecycle management  
+✅ **Shell-Based Kill** - Professional dedicated script  
+✅ **Child Process Handling** - Hierarchical process termination  
+✅ **Fallback Logic** - Works even without tracking table  
+✅ **Configuration Driven** - Easy maintenance via config.properties  
+✅ **Production Ready** - Comprehensive logging and error handling
+
+---
