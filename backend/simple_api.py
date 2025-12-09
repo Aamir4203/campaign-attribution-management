@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Validate configuration on startup
 if not config.validate_config():
-    logger.error("❌ Configuration validation failed - exiting")
+    logger.error("Configuration validation failed - exiting")
     exit(1)
 
 # Create Flask application
@@ -42,14 +42,11 @@ CORS(app,
 
 # Get database configuration
 DB_CONFIG = config.get_database_credentials()
-logger.info(f"🔗 Database configuration loaded: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
 
 def get_db_connection():
     """Get database connection with timeout - non-blocking for Flask startup"""
     try:
         # Add connection timeout to prevent hanging
-        logger.debug(f"🔗 Attempting database connection to {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
-
         import signal
 
         # Set a timeout for database connection
@@ -71,14 +68,13 @@ def get_db_connection():
         except AttributeError:
             pass
 
-        logger.debug("✅ Database connection successful")
         return conn
 
     except (psycopg2.OperationalError, TimeoutError) as e:
-        logger.warning(f"⚠️ Database connection failed (this is OK for testing): {e}")
+        logger.warning(f"Database connection failed: {e}")
         return None
     except Exception as e:
-        logger.error(f"❌ Database connection error: {e}")
+        logger.error(f"Database connection error: {e}")
         return None
 
 @app.route('/health', methods=['GET'])
@@ -93,41 +89,28 @@ def health_check():
 @app.route('/api/clients', methods=['GET'])
 def get_clients():
     """Get all clients for dropdown"""
-    logger.info("📋 /api/clients endpoint called")
-
     try:
-        logger.debug("🔗 Getting database connection for clients...")
         conn = get_db_connection()
         if not conn:
-            logger.error("❌ Database connection failed for clients")
             return jsonify({
                 'success': False,
                 'error': 'Database connection failed'
             }), 500
 
-        logger.debug("📊 Executing clients query...")
         cursor = conn.cursor()
-
-        # Use configuration for table name
         clients_table = config.get_table_name('clients')
         query = f"""
             SELECT lower(client_name) as client_name 
             FROM {clients_table}
             ORDER BY client_name
         """
-        logger.debug(f"📝 SQL Query: {query}")
 
         cursor.execute(query)
         results = cursor.fetchall()
 
-        logger.debug(f"📊 Query returned {len(results)} client records")
-
         clients = [{'client_name': row[0]} for row in results]
         cursor.close()
         conn.close()
-
-        logger.info(f"✅ Retrieved {len(clients)} clients from database")
-        logger.debug(f"📋 Client list: {[c['client_name'] for c in clients[:5]]}{'...' if len(clients) > 5 else ''}")
 
         return jsonify({
             'success': True,
@@ -135,8 +118,7 @@ def get_clients():
         })
 
     except Exception as e:
-        logger.error(f"❌ Error fetching clients: {e}")
-        logger.error(f"❌ Error type: {type(e).__name__}")
+        logger.error(f"Error fetching clients: {e}")
         return jsonify({
             'success': False,
             'error': 'Failed to fetch clients from database'
@@ -170,15 +152,10 @@ def check_client():
         cursor.close()
         conn.close()
 
-        if result:
-            return jsonify({
-                'exists': True,
-                'client_id': result[0]
-            })
-        else:
-            return jsonify({
-                'exists': False
-            })
+        return jsonify({
+            'exists': bool(result),
+            'client_id': result[0] if result else None
+        })
 
     except Exception as e:
         logger.error(f"Error checking client: {e}")
@@ -193,7 +170,6 @@ def add_client():
             return jsonify({'error': 'client_name is required'}), 400
 
         client_name = data['client_name'].strip()
-
         if not client_name:
             return jsonify({'error': 'client_name cannot be empty'}), 400
 
@@ -233,7 +209,6 @@ def add_client():
         cursor.close()
         conn.close()
 
-        logger.info(f"Added new client: {client_name} with ID: {client_id}")
 
         return jsonify({
             'success': True,
@@ -252,11 +227,7 @@ def add_client():
 def submit_form():
     """Submit campaign attribution request form"""
     try:
-        # Version indicator for debugging
-        logger.info("🚀 SUBMIT_FORM v2.0 - WITH NEW FIELDS SUPPORT (request_id_supp, priority_file, priority_file_per)")
-
         data = request.get_json()
-        logger.info(f"📝 Received form data: {data}")
 
         # Validate required fields
         required_fields = ['clientName', 'addedBy', 'requestType', 'startDate', 'endDate']
@@ -282,7 +253,6 @@ def submit_form():
                         'message': 'Residual date must be equal to or greater than end date'
                     }), 400
 
-                logger.info(f"✅ Date validation passed: Start={start_date}, End={end_date}, Residual={residual_date}")
 
             except ValueError as ve:
                 return jsonify({
@@ -373,20 +343,16 @@ def submit_form():
                 }), 400
 
         # Get database connection
-        logger.info("🔗 Attempting database connection...")
         conn = get_db_connection()
         if not conn:
-            logger.error("❌ Database connection failed")
             return jsonify({
                 'success': False,
                 'message': 'Database connection failed'
             }), 500
 
-        logger.info("✅ Database connection successful")
         cursor = conn.cursor()
 
         # Get client_id from client_name
-        logger.info(f"🔍 Looking up client: {data['clientName']}")
         clients_table = config.get_table_name('clients')
         cursor.execute(
             f"SELECT client_id FROM {clients_table} WHERE LOWER(client_name) = LOWER(%s)",
@@ -397,19 +363,14 @@ def submit_form():
         if not client_result:
             cursor.close()
             conn.close()
-            logger.error(f"❌ Client not found: {data['clientName']}")
             return jsonify({
                 'success': False,
                 'message': f'Client "{data["clientName"]}" not found'
             }), 400
 
         client_id = client_result[0]
-        logger.info(f"✅ Client found with ID: {client_id}")
 
         # Prepare data for insertion
-        logger.info("📝 Preparing data for database insertion...")
-
-        # Convert dates properly
         start_date = data['startDate']
         end_date = data['endDate']
         residual_date = data.get('residualStart') if data.get('residualStart') else None
@@ -423,10 +384,9 @@ def submit_form():
         timestamp_path = data.get('timeStampPath', '').strip() if data.get('addTimeStamp') else None
         priority_file_per = None
 
-        # Process priority file percentage with debugging
+        # Process priority file percentage
         if data.get('priorityFilePer') is not None:
             priority_file_per_raw = data.get('priorityFilePer')
-            logger.info(f"🔍 Priority percentage received: {priority_file_per_raw} (type: {type(priority_file_per_raw)})")
 
             # Handle both string and numeric inputs
             try:
@@ -435,27 +395,14 @@ def submit_form():
                 elif isinstance(priority_file_per_raw, (int, float)):
                     priority_file_per = int(priority_file_per_raw)
                 else:
-                    logger.warning(f"⚠️ Unexpected priority percentage type: {type(priority_file_per_raw)}")
                     priority_file_per = int(float(str(priority_file_per_raw)))
-
-                logger.info(f"✅ Priority percentage processed: {priority_file_per}")
 
                 # Validate range
                 if priority_file_per < 1 or priority_file_per > 100:
-                    logger.error(f"❌ Priority percentage out of range: {priority_file_per}")
                     priority_file_per = None
 
-            except (ValueError, TypeError) as e:
-                logger.error(f"❌ Failed to process priority percentage: {e}")
+            except (ValueError, TypeError):
                 priority_file_per = None
-
-        logger.info(f"📊 Final values - Request ID Suppression: {request_id_suppression}")
-        logger.info(f"📊 Final values - Priority File: {priority_file}")
-        logger.info(f"📊 Final values - Priority File Per: {priority_file_per}")
-        logger.info(f"📊 Final values - TimeStamp Path: {timestamp_path}")
-
-        # Debug: Confirm we're using the updated code
-        logger.info("🔧 Using UPDATED backend code with new fields support")
 
         # Insert into postback request details table
         requests_table = config.get_table_name('requests')
@@ -470,8 +417,6 @@ def submit_form():
         RETURNING request_id
         """
 
-        logger.info(f"📋 Insert query columns: 23 columns including timestamp_report_path")
-        logger.info(f"📋 New fields in query: request_id_supp, priority_file, priority_file_per, timestamp_report_path")
 
         insert_data = (
             client_id,                                                              # client_id
@@ -499,28 +444,14 @@ def submit_form():
             datetime.now()                                                         # created_date
         )
 
-        logger.info(f"📊 Insert data has {len(insert_data)} parameters (should be 23)")
-        logger.info(f"📊 New field values in insert_data:")
-        logger.info(f"   - request_id_supp (pos 18): {insert_data[18]}")
-        logger.info(f"   - priority_file (pos 19): {insert_data[19]}")
-        logger.info(f"   - priority_file_per (pos 20): {insert_data[20]}")
-        logger.info(f"   - timestamp_report_path (pos 21): {insert_data[21]}")
-        logger.info(f"📊 Executing database insertion with data: {insert_data}")
-
         try:
             cursor.execute(insert_query, insert_data)
             request_id = cursor.fetchone()[0]
 
-            logger.info(f"✅ Record inserted with request_id: {request_id}")
-
             # Commit the transaction
             conn.commit()
-            logger.info("✅ Transaction committed successfully")
-
             cursor.close()
             conn.close()
-
-            logger.info(f"🎉 Form submitted successfully with request ID: {request_id}")
 
             return jsonify({
                 'success': True,
@@ -536,9 +467,7 @@ def submit_form():
             cursor.close()
             conn.close()
 
-            logger.error(f"❌ Database insertion failed: {str(db_error)}")
-            logger.error(f"❌ Query: {insert_query}")
-            logger.error(f"❌ Data: {insert_data}")
+            logger.error(f"Database insertion failed: {str(db_error)}")
 
             return jsonify({
                 'success': False,
@@ -546,7 +475,7 @@ def submit_form():
             }), 500
 
     except Exception as e:
-        logger.error(f"❌ General error submitting form: {str(e)}")
+        logger.error(f"Error submitting form: {str(e)}")
         return jsonify({
             'success': False,
             'message': f'Failed to process form data: {str(e)}'
@@ -556,10 +485,7 @@ def submit_form():
 def add_request():
     """Add new campaign attribution request - modern API endpoint"""
     try:
-        logger.info("🚀 ADD_REQUEST v1.0 - Modern API endpoint for AddRequestForm")
-
         data = request.get_json()
-        logger.info(f"📝 Received request data: {data}")
 
         # Convert underscore-separated fields to camelCase for existing submit_form logic
         converted_data = {
@@ -727,11 +653,8 @@ def add_request():
 @app.route('/update_request/<int:request_id>', methods=['POST'])
 def update_request(request_id):
     """Update existing request with new form data and trigger rerun from specified module"""
-    logger.info(f"🔄 Update request endpoint called for ID: {request_id}")
-
     try:
         data = request.get_json()
-        logger.info(f"📝 Received update data: {data}")
 
         # Extract rerun module information
         rerun_module = data.get('rerun_module', 'TRT')
@@ -768,8 +691,6 @@ def update_request(request_id):
             'priorityFilePer': data.get('priority_file_per')
         }
 
-        logger.info(f"🔄 Converted data for update: {converted_data}")
-
         # Validate required fields
         required_fields = ['clientName', 'addedBy', 'requestType', 'startDate', 'endDate']
         missing_fields = [field for field in required_fields if not converted_data.get(field)]
@@ -794,8 +715,6 @@ def update_request(request_id):
                         'message': 'Residual date must be equal to or greater than end date'
                     }), 400
 
-                logger.info(f"✅ Date validation passed for update")
-
             except ValueError as ve:
                 return jsonify({
                     'success': False,
@@ -814,7 +733,6 @@ def update_request(request_id):
         }
         error_code = module_error_codes.get(rerun_module, 1)
 
-        logger.info(f"🔄 Update with rerun module: {rerun_module}, Error code: {error_code}")
 
         # Get database connection
         conn = get_db_connection()
@@ -915,8 +833,6 @@ def update_request(request_id):
         cursor.close()
         conn.close()
 
-        logger.info(f"✅ Request {request_id} updated successfully and marked for rerun - Module: {rerun_module} (Error Code: {error_code})")
-
         return jsonify({
             'success': True,
             'message': f'Request {request_id} updated and queued for rerun from {rerun_module} module',
@@ -924,7 +840,7 @@ def update_request(request_id):
         })
 
     except Exception as e:
-        logger.error(f"❌ Error during request update: {e}")
+        logger.error(f"Error during request update: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # Session storage (in production, use Redis or database)
@@ -949,7 +865,6 @@ def login():
     """User login - create a new session"""
     try:
         data = request.get_json()
-        logger.info(f"🔑 Login attempt: {data.get('username')}")
 
         # Validate input
         if not data or 'username' not in data or 'password' not in data:
@@ -960,7 +875,6 @@ def login():
 
         # For development, allow admin/password directly
         if username == 'admin' and password == 'password':
-            logger.info("✅ Admin login successful")
             return jsonify({
                 'success': True,
                 'message': 'Login successful',
@@ -977,8 +891,6 @@ def login():
 
         # Check user credentials
         users_table = config.get_table_name('users')
-        logger.info(f"🔍 Using users table: {users_table}")
-        logger.info(f"🔑 Attempting login with username: '{username}' and password: '{password}'")
 
         # Check user credentials using correct column names: id, username, password
         cursor.execute(
@@ -988,16 +900,6 @@ def login():
         user = cursor.fetchone()
 
         if not user:
-            # For debugging, let's check if user exists but password is wrong
-            cursor.execute(f"SELECT id, username, password FROM {users_table} WHERE username = %s", (username,))
-            user_check = cursor.fetchone()
-
-            if user_check:
-                logger.warning(f"❌ User '{username}' exists but password mismatch")
-                logger.info(f"🔍 Expected: '{user_check[2]}', Provided: '{password}'")
-            else:
-                logger.warning(f"❌ User '{username}' not found in database")
-
             cursor.close()
             conn.close()
             return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
@@ -1013,8 +915,6 @@ def login():
         cursor.close()
         conn.close()
 
-        logger.info(f"✅ User {username} logged in successfully, session ID: {session_id}")
-
         return jsonify({
             'success': True,
             'message': 'Login successful',
@@ -1023,7 +923,7 @@ def login():
         })
 
     except Exception as e:
-        logger.error(f"❌ Error during login: {e}")
+        logger.error(f"Error during login: {e}")
         return jsonify({'success': False, 'message': 'Login failed'}), 500
 
 @app.route('/api/logout', methods=['POST'])
@@ -1033,15 +933,11 @@ def logout():
         data = request.get_json()
         token = data.get('token')
 
-        logger.info(f"🔑 Logout attempt for token: {token}")
-
         if not token or token not in active_sessions:
             return jsonify({'success': False, 'message': 'Invalid or expired token'}), 401
 
         # Remove the session
         del active_sessions[token]
-
-        logger.info(f"✅ Session {token} logged out successfully")
 
         return jsonify({
             'success': True,
@@ -1049,7 +945,7 @@ def logout():
         })
 
     except Exception as e:
-        logger.error(f"❌ Error during logout: {e}")
+        logger.error(f"Error during logout: {e}")
         return jsonify({'success': False, 'message': 'Logout failed'}), 500
 
 @app.route('/api/session_info', methods=['GET'])
@@ -1060,7 +956,6 @@ def session_info():
         cleanup_expired_sessions()
 
         token = request.headers.get('Authorization')
-        logger.info(f"🔑 Session info request for token: {token}")
 
         if not token or token not in active_sessions:
             return jsonify({'success': False, 'message': 'Invalid or expired token'}), 401
@@ -1080,7 +975,7 @@ def session_info():
         })
 
     except Exception as e:
-        logger.error(f"❌ Error fetching session info: {e}")
+        logger.error(f"Error fetching session info: {e}")
         return jsonify({'success': False, 'message': 'Failed to get session info'}), 500
 
 # ==========================================
@@ -1090,8 +985,6 @@ def session_info():
 @app.route('/api/requests', methods=['GET'])
 def get_requests():
     """Get all requests with pagination and search - Phase 3"""
-    logger.info("📋 /api/requests endpoint called")
-
     try:
         # Get query parameters
         page = int(request.args.get('page', 1))
@@ -1180,8 +1073,6 @@ def get_requests():
         cursor.close()
         conn.close()
 
-        logger.info(f"✅ Retrieved {len(requests)} requests (page {page} of {total_pages})")
-
         return jsonify({
             'success': True,
             'requests': requests,
@@ -1192,7 +1083,7 @@ def get_requests():
         })
 
     except Exception as e:
-        logger.error(f"❌ Error fetching requests: {e}")
+        logger.error(f"Error fetching requests: {e}")
         return jsonify({
             'success': False,
             'error': f'Failed to fetch requests: {str(e)}'
@@ -1201,8 +1092,6 @@ def get_requests():
 @app.route('/api/requests/<int:request_id>/details', methods=['GET'])
 def get_request_details(request_id):
     """Get detailed information for a specific request"""
-    logger.info(f"📋 Request details endpoint called for ID: {request_id}")
-
     try:
         conn = get_db_connection()
         if not conn:
@@ -1246,7 +1135,7 @@ def get_request_details(request_id):
         })
 
     except Exception as e:
-        logger.error(f"❌ Error fetching request details: {e}")
+        logger.error(f"Error fetching request details: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/requests/<int:request_id>/rerun', methods=['POST'])
@@ -1314,44 +1203,38 @@ def rerun_request(request_id):
 
 @app.route('/api/requests/<int:request_id>/kill', methods=['POST'])
 def kill_request(request_id):
-    """Kill/Cancel a specific request using shell-based script"""
-    logger.info(f"⛔ Kill request endpoint called for ID: {request_id}")
-
+    """Kill/Cancel a specific request - handles W state efficiently"""
     try:
-        import subprocess
-        import os
+        # Get database connection and check request status
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
 
-        # Use the correct path based on your production environment structure
-        # From config.properties: MAIN_SCRIPTS="/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
-        script_path = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/cancelRequest.sh"
+        cursor = conn.cursor()
+        requests_table = config.get_table_name('requests')
 
-        logger.info(f"🔧 Executing cancel script: {script_path}")
+        # Get current request status
+        status_query = f"SELECT request_status FROM {requests_table} WHERE request_id = %s"
+        cursor.execute(status_query, (request_id,))
+        result = cursor.fetchone()
 
-        # Check if script exists
-        if not os.path.exists(script_path):
-            logger.error(f"❌ Cancel script not found: {script_path}")
+        if not result:
+            cursor.close()
+            conn.close()
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
 
-            # Fallback to database-only cancellation
-            conn = get_db_connection()
-            if not conn:
-                return jsonify({'success': False, 'error': 'Database connection failed and cancel script missing'}), 500
+        current_status = result[0]
 
-            cursor = conn.cursor()
-            requests_table = config.get_table_name('requests')
-
+        # Handle W (Waiting) state requests directly - no processes to kill
+        if current_status == 'W':
             update_query = f"""
             UPDATE {requests_table} 
             SET request_status = 'E', 
-                request_desc = 'Cancelled',
+                request_desc = 'Cancelled by User',
                 request_end_time = NOW()
-            WHERE request_id = %s AND request_status IN ('W', 'R', 'RE')
+            WHERE request_id = %s
             """
-
             cursor.execute(update_query, (request_id,))
-
-            if cursor.rowcount == 0:
-                return jsonify({'success': False, 'error': 'Request not found or cannot be cancelled'}), 400
-
             conn.commit()
             cursor.close()
             conn.close()
@@ -1360,99 +1243,101 @@ def kill_request(request_id):
                 'success': True,
                 'message': f'Request {request_id} cancelled',
                 'edit_enabled': True,
-                'fallback': True
-            })
-
-        # Execute shell script with proper working directory
-        # Set working directory to the main SCRIPTS folder
-        working_directory = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
-
-        result = subprocess.run(
-            ['bash', './cancelRequest.sh', str(request_id)],
-            cwd=working_directory,
-            capture_output=True,
-            text=True,
-            timeout=60  # 60 second timeout
-        )
-
-        logger.info(f"📋 Cancel script output: {result.stdout}")
-
-        if result.stderr:
-            logger.warning(f"⚠️ Cancel script warnings: {result.stderr}")
-
-        if result.returncode == 0:
-            return jsonify({
-                'success': True,
-                'message': f'Request {request_id} cancelled successfully',
-                'output': result.stdout.split('\n')[-4:-1] if result.stdout else [],  # Last few lines
-                'edit_enabled': True,  # Enable edit button after cancellation
-                'script_used': True
+                'direct_cancel': True
             })
         else:
-            logger.error(f"❌ Cancel script failed with return code: {result.returncode}")
-            error_message = result.stderr.strip() if result.stderr else "Unknown error"
+            # For non-W state requests (R, RE, etc.), close connection and use shell script
+            cursor.close()
+            conn.close()
 
-            # Provide user-friendly error message
-            user_friendly_error = f"Process cancellation failed. {error_message}"
-            if "not found" in error_message.lower():
-                user_friendly_error = "No active processes found for this request. The request may have already completed or been cancelled."
-            elif "timeout" in error_message.lower():
-                user_friendly_error = "Cancellation timeout. Some processes may still be running. Please try again."
-            elif "permission" in error_message.lower():
-                user_friendly_error = "Permission denied. Unable to terminate processes. Please contact administrator."
+            import subprocess
+            import os
 
-            return jsonify({
-                'success': False,
-                'error': user_friendly_error,
-                'output': result.stdout.split('\n') if result.stdout else [],
-                'return_code': result.returncode,
-                'retry_available': True  # Indicate that user can retry
-            }), 500
+            # Use the correct path based on production environment structure
+            script_path = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/cancelRequest.sh"
 
-    except subprocess.TimeoutExpired:
-        logger.error(f"⏰ Cancel script timeout for request {request_id}")
-        return jsonify({
-            'success': False,
-            'error': 'Cancellation timeout - the process is taking longer than expected. You may try again in a few moments.',
-            'retry_available': True
-        }), 500
+            # Check if script exists
+            if not os.path.exists(script_path):
+                # Fallback to database-only cancellation
+                conn = get_db_connection()
+                if not conn:
+                    return jsonify({'success': False, 'error': 'Database connection failed'}), 500
 
-    except Exception as e:
-        logger.error(f"❌ Error during kill request: {e}")
-
-        # Emergency fallback to database-only cancellation
-        try:
-            conn = get_db_connection()
-            if conn:
                 cursor = conn.cursor()
-                requests_table = config.get_table_name('requests')
-
                 update_query = f"""
                 UPDATE {requests_table} 
                 SET request_status = 'E', 
-                    request_desc = 'Emergency Cancellation - Manual Process Kill Required',
+                    request_desc = 'Cancelled (Script Not Found)',
                     request_end_time = NOW()
                 WHERE request_id = %s AND request_status IN ('W', 'R', 'RE')
                 """
-
                 cursor.execute(update_query, (request_id,))
+
+                if cursor.rowcount == 0:
+                    cursor.close()
+                    conn.close()
+                    return jsonify({'success': False, 'error': 'Request not found or cannot be cancelled'}), 400
+
                 conn.commit()
                 cursor.close()
                 conn.close()
 
                 return jsonify({
-                    'success': False,
-                    'error': f'Script execution failed: {str(e)}. Status marked as cancelled but manual process termination may be required.',
-                    'emergency_fallback': True,
-                    'retry_available': True,
-                    'admin_contact_required': True
-                }), 500
-        except:
-            pass
+                    'success': True,
+                    'message': f'Request {request_id} cancelled',
+                    'edit_enabled': True,
+                    'fallback': True
+                })
 
+            # Execute shell script
+            working_directory = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
+
+            result = subprocess.run(
+                ['bash', './cancelRequest.sh', str(request_id)],
+                cwd=working_directory,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+
+            if result.returncode == 0:
+                return jsonify({
+                    'success': True,
+                    'message': f'Request {request_id} cancelled successfully',
+                    'edit_enabled': True,
+                    'script_used': True
+                })
+            else:
+                logger.error(f"Cancel script failed with return code: {result.returncode}")
+                error_message = result.stderr.strip() if result.stderr else "Unknown error"
+
+                user_friendly_error = f"Process cancellation failed. {error_message}"
+                if "not found" in error_message.lower():
+                    user_friendly_error = "No active processes found for this request."
+                elif "timeout" in error_message.lower():
+                    user_friendly_error = "Cancellation timeout. Please try again."
+                elif "permission" in error_message.lower():
+                    user_friendly_error = "Permission denied. Contact administrator."
+
+                return jsonify({
+                    'success': False,
+                    'error': user_friendly_error,
+                    'retry_available': True
+                }), 500
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Cancel script timeout for request {request_id}")
         return jsonify({
             'success': False,
-            'error': f'Cancellation error: {str(e)}. Please try again or contact administrator.',
+            'error': 'Cancellation timeout. Please try again.',
+            'retry_available': True
+        }), 500
+
+    except Exception as e:
+        logger.error(f"Error during kill request: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Cancellation error: {str(e)}',
             'retry_available': True
         }), 500
 
@@ -2018,37 +1903,9 @@ def export_dashboard_reports():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting CAM API Server - Essential Endpoints Only")
-    logger.info("📊 Campaign Attribution Management")
-    logger.info("🔗 Frontend: http://localhost:3009")
-    logger.info("🔧 Backend API: http://localhost:5000")
-    logger.info("💡 Health Check: http://localhost:5000/health")
-    logger.info("📋 Production API Endpoints:")
-    logger.info("   GET  /health - Server health check")
-    logger.info("   GET  /api/clients - Retrieve client list")
-    logger.info("   POST /check_client - Validate client existence")
-    logger.info("   POST /add_client - Add new client")
-    logger.info("   POST /submit_form - Process form submission")
-    logger.info("   POST /api/login - User login")
-    logger.info("   POST /api/logout - User logout")
-    logger.info("   GET /api/session_info - Get current session information")
-    logger.info("   GET /api/requests - Get requests with pagination and search")
-    logger.info("   GET /api/requests/<id>/details - Get request details by ID")
-    logger.info("   POST /api/requests/<id>/rerun - Rerun a specific request")
-    logger.info("   POST /api/requests/<id>/kill - Kill/Cancel a specific request")
-    logger.info("   GET /api/requests/status-counts - Get request counts by status")
-    logger.info("")
-    logger.info("📊 Dashboard Analytics (Phase 4):")
-    logger.info("   GET /api/dashboard/metrics - Key dashboard metrics")
-    logger.info("   GET /api/dashboard/trt-volume - TRT volume chart data")
-    logger.info("   GET /api/dashboard/processing-time - Processing time trends")
-    logger.info("   GET /api/dashboard/alerts - System alerts and warnings")
-    logger.info("   GET /api/dashboard/users - User activity and performance")
-    logger.info("   GET /api/dashboard/system-status - System health status")
-    logger.info("   POST /api/dashboard/health-check - Run system diagnostics")
-    logger.info("   GET /api/dashboard/export - Export dashboard reports")
-
-    logger.info("🚀 Starting Flask server immediately (database connections will be tested on-demand)...")
+    print("Starting CAM API Server")
+    print("Frontend: http://localhost:3009")
+    print("Backend API: http://localhost:5000")
 
     # Get backend configuration
     backend_config = config.get_backend_config()

@@ -228,8 +228,8 @@ const KillButton: React.FC<{ request: Request; onAction: () => void; onAlert: (t
   const [showConfirm, setShowConfirm] = useState(false);
   const [lastCancelFailed, setLastCancelFailed] = useState(false);
 
-  // Show for Running status OR if last cancellation attempt failed
-  if (request.request_status !== 'R' && !lastCancelFailed) {
+  // Show for Waiting (W), Running (R) status OR if last cancellation attempt failed
+  if (!['W', 'R'].includes(request.request_status) && !lastCancelFailed) {
     return <span></span>;
   }
 
@@ -340,16 +340,6 @@ const KillButton: React.FC<{ request: Request; onAction: () => void; onAlert: (t
                 }`}
               >
                 {isProcessing ? 'Cancelling...' : (lastCancelFailed ? 'Yes, Retry' : 'Yes, Cancel')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
-              >
-                {isProcessing ? 'Cancelling...' : 'Yes, Cancel'}
               </button>
             </div>
           </div>

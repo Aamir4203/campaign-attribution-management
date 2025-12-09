@@ -2,28 +2,34 @@
 # trackingHelper.sh - Centralized Process Tracking Functions
 # Source this file in each module script to use tracking functions
 
+# Source configuration if not already loaded
+if [ -z "$CONNECTION_STRING" ]; then
+    source ./config.properties
+fi
+
 # Function to append current process ID to tracking table
 append_process_id() {
     local request_id=$1
     local module_name=$2
     local current_pid=$$
 
-    # Check if record exists
-    existing_count=$($CONNECTION_STRING -t -c "
+    # Check if record exists - extract only the count number
+    existing_count=$($CONNECTION_STRING -qtAX -c "
         SELECT COUNT(1)
         FROM $TRACKING_TABLE
         WHERE request_id=$request_id
-    " 2>/dev/null | xargs)
+    " 2>/dev/null)
+
+    # Default to 0 if no number found
+    existing_count=${existing_count:-0}
 
     if [ "$existing_count" -eq 0 ]; then
         # Create new record
         $CONNECTION_STRING -c "
             INSERT INTO $TRACKING_TABLE
-            (request_id, process_ids, module_sequence, current_module, start_time, last_updated, status, host_server, created_by)
-            VALUES ($request_id, '$current_pid', '$module_name', '$module_name', NOW(), NOW(), 'RUNNING', '$(hostname)', '$USER')
+            (request_id, process_ids, module_sequence, current_module, start_time, last_updated, status, created_by)
+            VALUES ($request_id, '$current_pid', '$module_name', '$module_name', NOW(), NOW(), 'RUNNING', '$USER')
         " 2>/dev/null
-
-        echo "[$(date)] New tracking record created for request $request_id, PID: $current_pid, Module: $module_name" >> "$CANCEL_LOG_FILE"
     else
         # Update existing record - append PID
         $CONNECTION_STRING -c "
@@ -43,8 +49,6 @@ append_process_id() {
                 status = 'RUNNING'
             WHERE request_id = $request_id
         " 2>/dev/null
-
-        echo "[$(date)] Updated tracking record for request $request_id, added PID: $current_pid, Module: $module_name" >> "$CANCEL_LOG_FILE"
     fi
 }
 
@@ -67,9 +71,12 @@ clear_and_restart_tracking() {
     " 2>/dev/null
 
     # If no existing record (shouldn't happen in re-run, but safety)
-    affected_rows=$($CONNECTION_STRING -t -c "
+    affected_rows=$($CONNECTION_STRING -qtAX -c "
         SELECT COUNT(1) FROM $TRACKING_TABLE WHERE request_id = $request_id
-    " 2>/dev/null | xargs)
+    " 2>/dev/null)
+
+    # Default to 0 if no number found
+    affected_rows=${affected_rows:-0}
 
     if [ "$affected_rows" -eq 0 ]; then
         $CONNECTION_STRING -c "
@@ -78,8 +85,6 @@ clear_and_restart_tracking() {
             VALUES ($request_id, '$current_pid', '$module_name', '$module_name', NOW(), NOW(), 'RUNNING', '$(hostname)', '$USER')
         " 2>/dev/null
     fi
-
-    echo "[$(date)] Cleared and restarted tracking for request $request_id, PID: $current_pid, Module: $module_name" >> "$CANCEL_LOG_FILE"
 }
 
 # Function to mark request as completed
@@ -90,7 +95,7 @@ mark_request_completed() {
     $CONNECTION_STRING -c "
         UPDATE $REQUEST_TABLE
         SET request_status = 'C',
-            request_desc = 'Completed Successfully',
+            request_desc = 'Request Completed',
             request_end_time = NOW()
         WHERE request_id = $request_id
     " 2>/dev/null
@@ -103,8 +108,6 @@ mark_request_completed() {
             last_updated = NOW()
         WHERE request_id = $request_id
     " 2>/dev/null
-
-    echo "[$(date)] Request $request_id marked as completed" >> "$CANCEL_LOG_FILE"
 }
 
 # Function to mark request as failed/error
@@ -130,6 +133,4 @@ mark_request_failed() {
             last_updated = NOW()
         WHERE request_id = $request_id
     " 2>/dev/null
-
-    echo "[$(date)] Request $request_id marked as failed in module: $error_module" >> "$CANCEL_LOG_FILE"
 }
