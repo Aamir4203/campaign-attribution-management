@@ -13,6 +13,7 @@ const DASHBOARD_CONFIG = {
 interface DashboardMetrics {
   total_requests: number;
   active_requests: number;
+  waiting_requests: number;
   completed_today: number;
   failed_requests: number;
   avg_execution_time: number;
@@ -49,6 +50,7 @@ const Dashboard: React.FC = () => {
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     total_requests: 0,
     active_requests: 0,
+    waiting_requests: 0,
     completed_today: 0,
     failed_requests: 0,
     avg_execution_time: 0
@@ -62,6 +64,7 @@ const Dashboard: React.FC = () => {
   const [customFromDate, setCustomFromDate] = useState('');
   const [customToDate, setCustomToDate] = useState('');
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [isUserActivityExpanded, setIsUserActivityExpanded] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
@@ -117,12 +120,20 @@ const Dashboard: React.FC = () => {
         setMetrics({
           total_requests: Number(metrics.total_requests) || 0,
           active_requests: Number(metrics.active_requests) || 0,
+          waiting_requests: Number(metrics.waiting_requests) || 0,
           completed_today: Number(metrics.completed_today) || 0,
           failed_requests: Number(metrics.failed_requests) || 0,
           avg_execution_time: Number(metrics.avg_execution_time) || 0
         });
       } else {
-        setMetrics({ total_requests: 0, active_requests: 0, completed_today: 0, failed_requests: 0, avg_execution_time: 0 });
+        setMetrics({
+          total_requests: 0,
+          active_requests: 0,
+          waiting_requests: 0,
+          completed_today: 0,
+          failed_requests: 0,
+          avg_execution_time: 0
+        });
       }
 
       // Handle user activity data
@@ -145,7 +156,14 @@ const Dashboard: React.FC = () => {
     } catch (err: any) {
       console.error('Dashboard API error:', err);
       setError('Unable to load dashboard data - using fallback');
-      setMetrics({ total_requests: 0, active_requests: 0, completed_today: 0, failed_requests: 0, avg_execution_time: 0 });
+      setMetrics({
+        total_requests: 0,
+        active_requests: 0,
+        waiting_requests: 0,
+        completed_today: 0,
+        failed_requests: 0,
+        avg_execution_time: 0
+      });
       setUsers([]);
       setAlerts([]);
     } finally {
@@ -274,10 +292,15 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Key Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-6">
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-sm font-medium text-gray-500 mb-2">Total Requests</h3>
           <p className="text-3xl font-bold text-blue-600">{formatNumber(metrics.total_requests)}</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-sm font-medium text-gray-500 mb-2">Waiting</h3>
+          <p className="text-3xl font-bold text-yellow-500">{formatNumber(metrics.waiting_requests)}</p>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">
@@ -375,37 +398,57 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* User Activity Section - Full Width */}
+      {/* User Activity Section - Collapsible */}
       <div className="grid grid-cols-1 gap-6 mb-6">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">👥 User Activity</h3>
-            <span className="text-sm text-gray-500">{getDateFilterLabel(dateFilter)} ({users.length} users)</span>
+        <div className="bg-white rounded-lg shadow">
+          <div
+            className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+            onClick={() => setIsUserActivityExpanded(!isUserActivityExpanded)}
+          >
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                👥 User Activity
+                <span className="ml-2 text-sm text-gray-500">({users.length} users)</span>
+              </h3>
+              <div className="flex items-center space-x-3">
+                <span className="text-sm text-gray-500">{getDateFilterLabel(dateFilter)}</span>
+                <span className="text-gray-400 text-xl transition-transform duration-200" style={{
+                  transform: isUserActivityExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
+                }}>
+                  ▼
+                </span>
+              </div>
+            </div>
           </div>
-          {users.length > 0 ? (
-            <div className="space-y-3 max-h-80 overflow-y-auto">
-              {users.map((user, index) => (
-                <div key={index} className="flex justify-between items-center py-3 border-b border-gray-100 last:border-b-0">
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">{user.username}</p>
-                    <p className="text-sm text-gray-500">
-                      {user.total_requests} requests • {user.success_rate}% success
-                    </p>
-                  </div>
-                  <div className="text-right ml-4">
-                    <p className="text-sm text-green-600 font-medium">{user.completed_requests} completed</p>
-                    <p className="text-xs text-gray-500">{formatExecutionTime(user.avg_execution_hours)} avg</p>
-                  </div>
+
+          {isUserActivityExpanded && (
+            <div className="px-6 pb-6 border-t border-gray-100">
+              {users.length > 0 ? (
+                <div className="space-y-3 max-h-80 overflow-y-auto mt-4">
+                  {users.map((user, index) => (
+                    <div key={index} className="flex justify-between items-center py-3 border-b border-gray-100 last:border-b-0">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">{user.username}</p>
+                        <p className="text-sm text-gray-500">
+                          {user.total_requests} requests • {user.success_rate}% success
+                        </p>
+                      </div>
+                      <div className="text-right ml-4">
+                        <p className="text-sm text-green-600 font-medium">{user.completed_requests} completed</p>
+                        <p className="text-xs text-gray-500">{formatExecutionTime(user.avg_execution_hours)} avg</p>
+                      </div>
+                    </div>
+                  ))}
+                  {users.length > 8 && (
+                    <div className="text-center text-xs text-gray-400 pt-2">
+                      Scroll to see all {users.length} users
+                    </div>
+                  )}
                 </div>
-              ))}
-              {users.length > 8 && (
-                <div className="text-center text-xs text-gray-400 pt-2">
-                  Scroll to see all {users.length} users
-                </div>
+              ) : (
+                <p className="text-gray-500 mt-4">No user activity data available for the selected date range</p>
               )}
             </div>
-          ) : (
-            <p className="text-gray-500">No user activity data available for the selected date range</p>
           )}
         </div>
       </div>

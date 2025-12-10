@@ -1,5 +1,184 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { requestService } from '../services/requestService';
+import { MdCancel, MdRefresh, MdVisibility, MdBarChart, MdAttachFile, MdEdit } from 'react-icons/md';
+
+// Custom Alert Modal Component
+const AlertModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  message: string;
+  type?: 'info' | 'success' | 'error' | 'warning';
+}> = ({
+  isOpen,
+  onClose,
+  title,
+  message,
+  type = 'info'
+}) => {
+  if (!isOpen) return null;
+
+  const getTypeStyles = () => {
+    switch (type) {
+      case 'success':
+        return {
+          icon: '✅',
+          titleColor: 'text-green-800',
+          bgColor: 'bg-green-50',
+          borderColor: 'border-green-200'
+        };
+      case 'error':
+        return {
+          icon: '❌',
+          titleColor: 'text-red-800',
+          bgColor: 'bg-red-50',
+          borderColor: 'border-red-200'
+        };
+      case 'warning':
+        return {
+          icon: '⚠️',
+          titleColor: 'text-yellow-800',
+          bgColor: 'bg-yellow-50',
+          borderColor: 'border-yellow-200'
+        };
+      default:
+        return {
+          icon: 'ℹ️',
+          titleColor: 'text-blue-800',
+          bgColor: 'bg-blue-50',
+          borderColor: 'border-blue-200'
+        };
+    }
+  };
+
+  const styles = getTypeStyles();
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4 border-l-4 border-l-blue-500">
+        <div className={`flex items-center space-x-3 mb-4 ${styles.bgColor} ${styles.borderColor} border rounded-lg p-3`}>
+          <span className="text-2xl">{styles.icon}</span>
+          <h3 className={`text-lg font-semibold ${styles.titleColor}`}>{title}</h3>
+        </div>
+        <p className="text-gray-700 mb-6 leading-relaxed">{message}</p>
+        <div className="flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Fixed Tooltip Component with proper z-index and positioning
+const Tooltip: React.FC<{ children: React.ReactNode; content: string }> = ({
+  children,
+  content
+}) => {
+  const [isVisible, setIsVisible] = useState(false);
+
+  if (!content || content === '-' || content.trim() === '') {
+    return <div className="w-full text-left truncate">{children}</div>;
+  }
+
+  return (
+    <div className="relative w-full text-left">
+      <div
+        className="truncate cursor-pointer"
+        onMouseEnter={() => setIsVisible(true)}
+        onMouseLeave={() => setIsVisible(false)}
+      >
+        {children}
+      </div>
+
+      {/* Tooltip with very high z-index and fixed positioning */}
+      {isVisible && (
+        <div
+          className="fixed px-3 py-2 text-xs bg-gray-900 text-white rounded shadow-xl whitespace-nowrap pointer-events-none"
+          style={{
+            zIndex: 99999,
+            transform: 'translate(-50%, -100%)',
+            top: '50%',
+            left: '50%',
+            maxWidth: '400px',
+            wordWrap: 'break-word',
+            whiteSpace: 'normal'
+          }}
+        >
+          {content}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Simple cell with tooltip
+const TableCell: React.FC<{ content: string; className?: string }> = ({
+  content,
+  className = ""
+}) => {
+  return (
+    <Tooltip content={content}>
+      <div className={`truncate ${className}`}>
+        {content}
+      </div>
+    </Tooltip>
+  );
+};
+
+// Custom Confirmation Modal Component
+const ConfirmationModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  confirmColor?: string;
+}> = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+  confirmColor = "bg-blue-600 hover:bg-blue-700"
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+        <p className="text-gray-600 mb-6">{message}</p>
+        <div className="flex justify-end space-x-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            {cancelText}
+          </button>
+          <button
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+            className={`px-4 py-2 text-white rounded-lg transition-colors ${confirmColor}`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Request interface based on database table structure
 interface Request {
@@ -44,124 +223,239 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 };
 
 // Individual button components
-const KillButton: React.FC<{ request: Request; onAction: () => void }> = ({ request, onAction }) => {
+const KillButton: React.FC<{ request: Request; onAction: () => void; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAction, onAlert }) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [lastCancelFailed, setLastCancelFailed] = useState(false);
 
-  // Only show for Running status (matching LogStreamr logic)
-  if (request.request_status !== 'R') {
+  // Show for Waiting (W), Running (R) status OR if last cancellation attempt failed
+  if (!['W', 'R'].includes(request.request_status) && !lastCancelFailed) {
     return <span></span>;
   }
 
   const handleKill = async () => {
-    if (window.confirm(`Are you sure you want to cancel request ${request.request_id}?`)) {
-      setIsProcessing(true);
-      try {
-        await requestService.killRequest(request.request_id);
-        alert(`Request ${request.request_id} has been cancelled`);
-        onAction();
-      } catch (error) {
-        console.error('Cancel request failed:', error);
-        alert('Failed to cancel request. Please try again.');
-      } finally {
-        setIsProcessing(false);
+    setIsProcessing(true);
+    setShowConfirm(false);
+    setLastCancelFailed(false); // Reset failure state
+
+    try {
+      const response = await requestService.killRequest(request.request_id);
+
+      if (response.success) {
+        // Successful cancellation
+        onAlert('Success', `Request ${request.request_id} has been cancelled successfully`, 'success');
+        setLastCancelFailed(false);
+        onAction(); // This will refresh the data and hide the button
+      } else {
+        // Cancellation failed but API returned success: false
+        console.error('Cancel request failed:', response.error);
+        setLastCancelFailed(true); // Keep button available for retry
+
+        const errorMessage = response.error || 'Failed to cancel request. Please try again.';
+        onAlert(
+          'Cancellation Failed',
+          `${errorMessage}\n\nThe cancel button will remain available for retry.`,
+          'error'
+        );
       }
+    } catch (error: any) {
+      // Network error or other exception
+      console.error('Cancel request failed:', error);
+      setLastCancelFailed(true); // Keep button available for retry
+
+      let errorMessage = 'Failed to cancel request. Please try again.';
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      onAlert(
+        'Cancellation Error',
+        `${errorMessage}\n\nThe cancel button will remain available for retry.`,
+        'error'
+      );
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Button styling - different appearance if last attempt failed
+  const buttonClass = lastCancelFailed
+    ? "text-orange-600 hover:text-orange-800 transition-colors disabled:opacity-50 p-1 border border-orange-300 rounded"
+    : "text-red-600 hover:text-red-800 transition-colors disabled:opacity-50 p-1";
+
+  const buttonTitle = lastCancelFailed
+    ? "Retry Cancel Request (Previous attempt failed)"
+    : "Cancel Request";
+
+  return (
+    <>
+      <button
+        onClick={() => setShowConfirm(true)}
+        disabled={isProcessing}
+        className={buttonClass}
+        title={buttonTitle}
+      >
+        <MdCancel className="w-4 h-4" />
+      </button>
+
+      {/* Confirmation Dialog */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              {lastCancelFailed ? 'Retry Cancellation' : 'Confirm Cancellation'}
+            </h3>
+            <p className="text-gray-600 mb-6">
+              {lastCancelFailed && (
+                <span className="text-orange-600 font-medium block mb-2">
+                  ⚠️ Previous cancellation attempt failed.
+                </span>
+              )}
+              Are you sure you want to {lastCancelFailed ? 'retry cancelling' : 'cancel'} request{' '}
+              <span className="font-semibold text-gray-900">#{request.request_id}</span>?
+              <br />
+              <span className="text-sm text-gray-500 mt-2 block">
+                {lastCancelFailed
+                  ? 'This will attempt to terminate any remaining processes.'
+                  : 'This action cannot be undone.'
+                }
+              </span>
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              >
+                No
+              </button>
+              <button
+                onClick={handleKill}
+                disabled={isProcessing}
+                className={`px-4 py-2 text-white rounded-lg transition-colors font-medium disabled:opacity-50 ${
+                  lastCancelFailed
+                    ? 'bg-orange-600 hover:bg-orange-700'
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {isProcessing ? 'Cancelling...' : (lastCancelFailed ? 'Yes, Retry' : 'Yes, Cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+const EditButton: React.FC<{ request: Request }> = ({ request }) => {
+  const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Only show for Cancelled/Killed (E) or Completed (C) status
+  if (!['E', 'C'].includes(request.request_status)) {
+    return <span></span>;
+  }
+
+  const handleEdit = async () => {
+    setIsLoading(true);
+    try {
+      console.log('🔍 Fetching detailed request data for request ID:', request.request_id);
+
+      // Fetch detailed request data from backend
+      const detailedData = await requestService.getRequestDetails(request.request_id);
+      console.log('📋 Detailed data received:', detailedData);
+
+      // Combine basic request data with detailed data
+      const combinedData = {
+        // Basic info from current request
+        request_id: request.request_id,
+        client_name: request.client_name,
+        week: request.week,
+        added_by: request.added_by,
+        trt_count: request.trt_count,
+        request_status: request.request_status,
+        request_desc: request.request_desc,
+        execution_time: request.execution_time,
+        // Detailed data from API (may override basic data)
+        ...detailedData
+      };
+
+      console.log('🔧 Combined data for edit mode:', combinedData);
+
+      // Navigate to Add Request page with complete detailed data
+      navigate('/add-request', {
+        state: {
+          editMode: true,
+          requestData: combinedData
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Failed to fetch request details:', error);
+      console.log('⚠️ Using fallback - navigating with basic request data only');
+
+      // Fallback - navigate with basic data
+      navigate('/add-request', {
+        state: {
+          editMode: true,
+          requestData: {
+            request_id: request.request_id,
+            client_name: request.client_name,
+            week: request.week,
+            added_by: request.added_by,
+            trt_count: request.trt_count,
+            request_status: request.request_status,
+            request_desc: request.request_desc,
+            execution_time: request.execution_time
+          }
+        }
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <button
-      onClick={handleKill}
-      disabled={isProcessing}
-      className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-      title="Cancel Request"
+      onClick={handleEdit}
+      disabled={isLoading}
+      className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1"
+      title={isLoading ? "Loading request details..." : "Edit Request"}
     >
-      {isProcessing ? 'Cancelling...' : 'Cancel'}
+      {isLoading ? (
+        <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+      ) : (
+        <MdEdit className="w-4 h-4" />
+      )}
     </button>
   );
 };
 
-const RerunButton: React.FC<{ request: Request; onAction: () => void }> = ({ request, onAction }) => {
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
 
-  // Only show for Completed and Error status (matching LogStreamr logic)
-  if (!['C', 'E'].includes(request.request_status)) {
-    return <span></span>;
-  }
-
-  const handleRerun = async (rerunType: string) => {
-    setIsProcessing(true);
-    try {
-      await requestService.rerunRequest(request.request_id, rerunType);
-      alert(`Request ${request.request_id} marked for rerun (${rerunType})`);
-      onAction();
-    } catch (error) {
-      console.error('Rerun failed:', error);
-      alert('Failed to rerun request. Please try again.');
-    } finally {
-      setShowDropdown(false);
-      setIsProcessing(false);
-    }
-  };
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setShowDropdown(!showDropdown)}
-        disabled={isProcessing}
-        className="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
-        title="ReRun"
-      >
-        {isProcessing ? 'Processing...' : 'ReRun ▼'}
-      </button>
-      {showDropdown && (
-        <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-24">
-          <button
-            onClick={() => handleRerun('Type1')}
-            className="block w-full px-3 py-2 text-left text-xs hover:bg-gray-100"
-          >
-            Type 1
-          </button>
-          <button
-            onClick={() => handleRerun('Type2')}
-            className="block w-full px-3 py-2 text-left text-xs hover:bg-gray-100"
-          >
-            Type 2
-          </button>
-          <button
-            onClick={() => handleRerun('Type3')}
-            className="block w-full px-3 py-2 text-left text-xs hover:bg-gray-100"
-          >
-            Type 3
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const ViewButton: React.FC<{ request: Request }> = ({ request }) => {
+const ViewButton: React.FC<{ request: Request; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAlert }) => {
   // Only show for Completed status (matching LogStreamr logic)
   if (request.request_status !== 'C') {
     return <span></span>;
   }
 
   const handleView = () => {
-    alert(`View details for request ${request.request_id} - Feature coming soon`);
+    onAlert('Coming Soon', `View details for request ${request.request_id} - Feature coming soon`, 'info');
   };
 
   return (
     <button
       onClick={handleView}
-      className="px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 transition-colors"
+      className="text-gray-600 hover:text-gray-800 transition-colors p-1"
       title="View Details"
     >
-      View
+      <MdVisibility className="w-4 h-4" />
     </button>
   );
 };
 
-const DownloadButton: React.FC<{ request: Request }> = ({ request }) => {
+const MetricsButton: React.FC<{ request: Request; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAlert }) => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Only show for Completed status (matching LogStreamr logic)
@@ -169,21 +463,22 @@ const DownloadButton: React.FC<{ request: Request }> = ({ request }) => {
     return <span></span>;
   }
 
-  const handleDownload = async () => {
+  const handleMetrics = async () => {
     setIsProcessing(true);
     try {
       const blob = await requestService.downloadRequest(request.request_id);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `request_${request.request_id}_files.zip`;
+      a.download = `request_${request.request_id}_metrics.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+      onAlert('Success', 'Metrics file download started successfully', 'success');
     } catch (error) {
-      console.error('Download failed:', error);
-      alert('Download functionality not available yet.');
+      console.error('Metrics download failed:', error);
+      onAlert('Info', 'Metrics functionality not available yet.', 'info');
     } finally {
       setIsProcessing(false);
     }
@@ -191,17 +486,17 @@ const DownloadButton: React.FC<{ request: Request }> = ({ request }) => {
 
   return (
     <button
-      onClick={handleDownload}
+      onClick={handleMetrics}
       disabled={isProcessing}
-      className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors disabled:opacity-50"
-      title="Download"
+      className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1"
+      title="Download Metrics"
     >
-      {isProcessing ? 'Downloading...' : 'Download'}
+      <MdBarChart className="w-4 h-4" />
     </button>
   );
 };
 
-const UploadButton: React.FC<{ request: Request; onAction: () => void }> = ({ request, onAction }) => {
+const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAction, onAlert }) => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Only show for Completed status (matching LogStreamr logic)
@@ -219,11 +514,11 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void }> = ({ re
         setIsProcessing(true);
         try {
           await requestService.uploadRequest(request.request_id, file);
-          alert(`File uploaded successfully for request ${request.request_id}`);
+          onAlert('Success', `File uploaded successfully for request ${request.request_id}`, 'success');
           onAction();
         } catch (error) {
           console.error('Upload failed:', error);
-          alert('Upload functionality not available yet.');
+          onAlert('Info', 'Upload functionality not available yet.', 'info');
         } finally {
           setIsProcessing(false);
         }
@@ -236,21 +531,43 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void }> = ({ re
     <button
       onClick={handleUpload}
       disabled={isProcessing}
-      className="px-2 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors disabled:opacity-50"
-      title="Upload"
+      className="text-purple-600 hover:text-purple-800 transition-colors disabled:opacity-50 p-1"
+      title="Upload File"
     >
-      {isProcessing ? 'Uploading...' : 'Upload'}
+      <MdAttachFile className="w-4 h-4" />
     </button>
   );
 };
 
 const RequestLogs: React.FC = () => {
+  const navigate = useNavigate();
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Alert state
+  const [alertState, setAlertState] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'info' | 'success' | 'error' | 'warning'
+  });
+
+  const showAlert = (title: string, message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
+    setAlertState({
+      isOpen: true,
+      title,
+      message,
+      type
+    });
+  };
+
+  const closeAlert = () => {
+    setAlertState(prev => ({ ...prev, isOpen: false }));
+  };
 
   const requestsPerPage = 50;
 
@@ -376,73 +693,75 @@ const RequestLogs: React.FC = () => {
       </div>
 
       {/* Table Container - Scrollable middle section */}
-      <div className="overflow-auto bg-white" style={{ height: 'calc(100vh - 220px)' }}>
-        <table className="w-full border-collapse border border-gray-300">
-          <thead className="bg-gray-100 sticky top-0 z-10">
+      <div className="overflow-auto bg-white relative" style={{ height: 'calc(100vh - 220px)' }}>
+        <table className="w-full border-collapse table-fixed">
+          <thead className="bg-gradient-to-r from-blue-50 to-indigo-100 sticky top-0 z-10">
             <tr>
-              <th className="w-20 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
-                RequestId
+              <th className="w-20 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
+                Request ID
               </th>
-              <th className="w-32 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-32 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
                 Client Name
               </th>
-              <th className="w-20 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-16 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
                 Week
               </th>
-              <th className="w-28 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
-                AddedBy
+              <th className="w-20 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
+                User
               </th>
-              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
-                TRTCount
+              <th className="w-20 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
+                TRT Count
               </th>
-              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-20 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
                 Status
               </th>
-              <th className="w-48 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-40 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
                 Description
               </th>
-              <th className="w-24 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
-                ExecTime
+              <th className="w-20 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
+                Exec Time
               </th>
-              <th className="w-60 px-3 py-1 text-center text-sm font-bold text-black uppercase tracking-wider border border-gray-300">
+              <th className="w-40 px-2 py-2 text-left text-xs font-bold text-gray-800 border-b-2 border-blue-200" style={{ whiteSpace: 'nowrap' }}>
                 Actions
               </th>
             </tr>
           </thead>
           <tbody className="bg-white">
             {requests.map((request) => (
-              <tr key={request.request_id} className="hover:bg-gray-50">
-                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm font-medium text-gray-900 border-b border-gray-200 align-top">
-                  {request.request_id}
+              <tr key={request.request_id} className="hover:bg-blue-25 transition-colors">
+                <td className="w-20 px-2 py-2 text-sm font-medium text-gray-900 border-b border-gray-100 align-middle overflow-hidden">
+                  <TableCell content={request.request_id.toString()} />
                 </td>
-                <td className="w-32 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
-                  {request.client_name}
+                <td className="w-32 px-2 py-2 text-sm text-gray-700 border-b border-gray-100 align-middle overflow-hidden">
+                  <TableCell content={request.client_name} />
                 </td>
-                <td className="w-20 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
-                  {request.week}
+                <td className="w-16 px-2 py-2 text-sm text-gray-700 border-b border-gray-100 align-middle overflow-hidden">
+                  <TableCell content={request.week} />
                 </td>
-                <td className="w-28 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
-                  {request.added_by}
+                <td className="w-20 px-2 py-2 text-sm text-gray-700 border-b border-gray-100 align-middle overflow-hidden">
+                  <TableCell content={request.added_by} />
                 </td>
-                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
-                  {request.trt_count ? request.trt_count.toLocaleString() : '-'}
+                <td className="w-20 px-2 py-2 text-sm text-gray-700 border-b border-gray-100 align-middle overflow-hidden">
+                  <TableCell content={request.trt_count ? request.trt_count.toLocaleString() : '-'} />
                 </td>
-                <td className="w-24 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-top">
-                  <StatusBadge status={request.request_status} />
+                <td className="w-20 px-2 py-2 border-b border-gray-100 align-middle overflow-hidden">
+                  <div className="text-left">
+                    <StatusBadge status={request.request_status} />
+                  </div>
                 </td>
-                <td className="w-48 px-3 py-1 text-sm text-gray-900 border-b border-gray-200 truncate align-top" title={request.request_desc}>
-                  {request.request_desc}
+                <td className="w-40 px-2 py-2 text-sm text-gray-700 border-b border-gray-100 align-middle overflow-hidden">
+                  <TableCell content={request.request_desc} />
                 </td>
-                <td className="w-24 px-3 py-1 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200 align-top">
-                  {request.execution_time || '-'}
+                <td className="w-20 px-2 py-2 text-sm text-gray-700 border-b border-gray-100 align-middle overflow-hidden">
+                  <TableCell content={request.execution_time || '-'} />
                 </td>
-                <td className="w-60 px-3 py-1 whitespace-nowrap border-b border-gray-200 align-top">
-                  <div className="flex items-start justify-start space-x-1">
-                    <KillButton request={request} onAction={loadRequests} />
-                    <RerunButton request={request} onAction={loadRequests} />
-                    <ViewButton request={request} />
-                    <DownloadButton request={request} />
-                    <UploadButton request={request} onAction={loadRequests} />
+                <td className="w-40 px-2 py-2 border-b border-gray-100 align-middle overflow-hidden">
+                  <div className="flex items-center justify-start space-x-1">
+                    <KillButton request={request} onAction={loadRequests} onAlert={showAlert} />
+                    <EditButton request={request} />
+                    <ViewButton request={request} onAlert={showAlert} />
+                    <MetricsButton request={request} onAlert={showAlert} />
+                    <UploadButton request={request} onAction={loadRequests} onAlert={showAlert} />
                   </div>
                 </td>
               </tr>
@@ -483,6 +802,15 @@ const RequestLogs: React.FC = () => {
       <div className="flex-shrink-0 bg-gray-50 text-center text-sm text-gray-500 py-2">
         Auto-refresh every 30 seconds • Last updated: {new Date().toLocaleTimeString()} • {requests.length} requests shown
       </div>
+
+      {/* Custom Alert Modal */}
+      <AlertModal
+        isOpen={alertState.isOpen}
+        onClose={closeAlert}
+        title={alertState.title}
+        message={alertState.message}
+        type={alertState.type}
+      />
     </>
   );
 };
