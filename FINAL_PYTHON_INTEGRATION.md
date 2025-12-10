@@ -1,8 +1,8 @@
-# PYTHON INTEGRATION - SHELL CALLS
+# PYTHON INTEGRATION - DIRECT SUBPROCESS CALLS
 
 ## Simple Solution
 
-Python scripts call existing shell tracking functions using subprocess calls.
+Python scripts call existing shell tracking functions using direct subprocess calls.
 
 ## Basic Template for Python Scripts
 
@@ -13,20 +13,6 @@ import sys
 import os
 import subprocess
 
-def track_process(request_id, module_name):
-    """Call existing shell tracking function"""
-    subprocess.run([
-        'bash', '-c', 
-        f'source ./config.properties && source $TRACKING_HELPER && append_process_id {request_id} "{module_name}"'
-    ], cwd=os.path.dirname(__file__), check=False)
-
-def mark_failed(request_id, module_name, error_msg):
-    """Call shell function to mark request as failed"""
-    subprocess.run([
-        'bash', '-c', 
-        f'source ./config.properties && source $TRACKING_HELPER && mark_request_failed {request_id} "{module_name}" "{error_msg}"'
-    ], cwd=os.path.dirname(__file__), check=False)
-
 def main():
     request_id = sys.argv[1] if len(sys.argv) > 1 else None
     
@@ -35,14 +21,21 @@ def main():
         sys.exit(1)
     
     try:
-        # Track this process
-        track_process(request_id, "MODULE_NAME")
+        # Track this process directly
+        subprocess.run([
+            'bash', '-c', 
+            f'source ./config.properties && source $TRACKING_HELPER && append_process_id {request_id} "MODULE_NAME"'
+        ], cwd=os.path.dirname(__file__), check=False)
         
         # Your existing Python code here
         # ...existing logic...
         
     except Exception as e:
-        mark_failed(request_id, "MODULE_NAME", str(e))
+        # Mark failed directly
+        subprocess.run([
+            'bash', '-c', 
+            f'source ./config.properties && source $TRACKING_HELPER && mark_request_failed {request_id} "MODULE_NAME" "{str(e)}"'
+        ], cwd=os.path.dirname(__file__), check=False)
         sys.exit(1)
 
 if __name__ == "__main__":
@@ -57,15 +50,14 @@ if __name__ == "__main__":
 ```python
 import subprocess
 import threading
-
-def track_process(request_id, module_name):
-    subprocess.run(['bash', '-c', f'source ./config.properties && source $TRACKING_HELPER && append_process_id {request_id} "{module_name}"'], cwd=os.path.dirname(__file__), check=False)
+import sys
+import os
 
 def main():
     request_id = sys.argv[1]
     
-    # Track main process
-    track_process(request_id, "RLTP_MAIN")
+    # Track main process directly
+    subprocess.run(['bash', '-c', f'source ./config.properties && source $TRACKING_HELPER && append_process_id {request_id} "RLTP_MAIN"'], cwd=os.path.dirname(__file__), check=False)
     
     # Create threads
     for i in range(5):
@@ -73,8 +65,8 @@ def main():
         thread.start()
 
 def process_thread(request_id, thread_num):
-    # Track this thread
-    track_process(request_id, f"RLTP_THREAD_T{thread_num}")
+    # Track this thread directly
+    subprocess.run(['bash', '-c', f'source ./config.properties && source $TRACKING_HELPER && append_process_id {request_id} "RLTP_THREAD_T{thread_num}"'], cwd=os.path.dirname(__file__), check=False)
     # ...existing thread logic...
 ```
 
@@ -82,11 +74,13 @@ def process_thread(request_id, thread_num):
 
 ```python
 import subprocess
+import sys
+import os
 
 def main():
     request_id = sys.argv[1]
     
-    # Track process
+    # Track process directly
     subprocess.run(['bash', '-c', f'source ./config.properties && source $TRACKING_HELPER && append_process_id {request_id} "DELETE_PARTITION"'], cwd=os.path.dirname(__file__), check=False)
     
     # ...existing partition deletion code...

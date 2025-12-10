@@ -2,6 +2,8 @@ import pandas as pd
 from  sqlalchemy import *
 import psycopg2
 import sys
+import subprocess
+import os
 
 
 pg_config = {
@@ -57,6 +59,10 @@ def stats_up(cnt,ng,gt,engine,table_name,cpm_rpt_path):
 
 if __name__=="__main__":
     request_id=sys.argv[1]
+
+    # Track this process
+    subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {request_id} "OPEN_CLICK_ADJUSTMENT"'], check=False)
+
     engine=create_engine('postgresql+psycopg2://datateam:@zds-prod-pgdb01-01.bo3.e-dialog.com/apt_tool_db')
     tb_info = pd.read_sql("SELECT a.request_id,a.week,a.query,a.decile_wise_report_path,b.client_name,a.SUPP_PATH FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND a,apt_custom_client_info_table_dnd b  WHERE request_id="+request_id+" and a.client_id=b.client_id", con=engine)
     cpm_rpt_path=tb_info['decile_wise_report_path'][0]

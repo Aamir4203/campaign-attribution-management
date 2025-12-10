@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import sys
+import subprocess
 sys.path.append('/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES')
 from sqlalchemy import create_engine, inspect
 import re
@@ -34,6 +35,9 @@ def status_up(desc):
 def main(args):
     client, trt_tb, qr, presto_config, pg_config,sup_l,n,deciles_,indx_val,indx_creation,client_id,Audit_TRT_limit=args
     try:
+        # Track this worker process
+        subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {sys.argv[1]} "RLTP_WORKER_{client}"'], check=False)
+
         if event.is_set():
            return
         if deciles_=='True':
@@ -149,6 +153,10 @@ if __name__ == "__main__":
         global logger,path,df
         n=1
         request_id=sys.argv[1]
+
+        # Track main process
+        subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {request_id} "RLTP_MAIN"'], check=False)
+
         path='/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/'+request_id
         lpath=path+"/LOGS"
         logger = log_module.setup_logging(lpath)
