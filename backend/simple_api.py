@@ -1646,6 +1646,199 @@ def get_status_counts():
         logger.error(f"❌ Error fetching status counts: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/requests/<int:request_id>/client-name', methods=['GET'])
+def get_client_name(request_id):
+    """Get client name for a specific request"""
+    logger.info(f"🏢 Client name endpoint called for request ID: {request_id}")
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Query based on config.properties CLIENT_NAME logic
+        query = """
+        SELECT UPPER(client_name) 
+        FROM APT_CUSTOM_CLIENT_INFO_TABLE_DND a 
+        JOIN APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND b ON a.client_id = b.client_id 
+        WHERE request_id = %s
+        """
+
+        cursor.execute(query, (request_id,))
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if result:
+            return jsonify({
+                'success': True,
+                'clientName': result[0]
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching client name: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/requests/<int:request_id>/week', methods=['GET'])
+def get_week(request_id):
+    """Get week for a specific request"""
+    logger.info(f"📅 Week endpoint called for request ID: {request_id}")
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Query based on config.properties WEEK logic
+        query = """
+        SELECT UPPER(week) 
+        FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND 
+        WHERE request_id = %s
+        """
+
+        cursor.execute(query, (request_id,))
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if result:
+            return jsonify({
+                'success': True,
+                'week': result[0]
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching week: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/tables/<table_name>/columns', methods=['GET'])
+def get_table_columns(table_name):
+    """Get columns for a specific table"""
+    logger.info(f"📋 Table columns endpoint called for table: {table_name}")
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Get table columns from information_schema
+        query = """
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = %s 
+        ORDER BY ordinal_position
+        """
+
+        cursor.execute(query, (table_name.lower(),))
+        results = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        if results:
+            columns = [row[0] for row in results]
+            return jsonify({
+                'success': True,
+                'columns': columns
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Table not found or no columns'}), 404
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching table columns: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/requests/<int:request_id>/metrics/download', methods=['POST'])
+def download_metrics(request_id):
+    """Download metrics with custom or standard queries"""
+    logger.info(f"📊 Download metrics endpoint called for request ID: {request_id}")
+
+    try:
+        import pandas as pd
+        from io import BytesIO
+
+        data = request.get_json()
+        queries = data.get('queries', [])
+        metric_type = data.get('metricType', 'standard')
+
+        if not queries:
+            return jsonify({'success': False, 'error': 'No queries provided'}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Create Excel file with multiple sheets
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for i, query_info in enumerate(queries):
+                query_name = query_info.get('name', f'Query_{i+1}')
+                query_sql = query_info.get('query', '')
+
+                try:
+                    cursor.execute(query_sql)
+                    results = cursor.fetchall()
+
+                    if results:
+                        # Get column names
+                        col_names = [desc[0] for desc in cursor.description]
+
+                        # Create DataFrame
+                        df = pd.DataFrame(results, columns=col_names)
+
+                        # Write to Excel sheet
+                        sheet_name = query_name[:31] if len(query_name) > 31 else query_name  # Excel sheet name limit
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                        logger.info(f"📋 Added sheet '{sheet_name}' with {len(results)} rows")
+                    else:
+                        # Create empty DataFrame for queries with no results
+                        df = pd.DataFrame({'Message': ['No data found for this query']})
+                        sheet_name = f'Empty_{i+1}'
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                except Exception as query_error:
+                    logger.error(f"❌ Error executing query {i+1}: {query_error}")
+                    # Add error sheet
+                    error_df = pd.DataFrame({'Error': [f'Query execution failed: {str(query_error)}']})
+                    error_sheet_name = f'Error_{i+1}'
+                    error_df.to_excel(writer, sheet_name=error_sheet_name, index=False)
+
+        cursor.close()
+        conn.close()
+
+        output.seek(0)
+
+        # Create response
+        response = app.response_class(
+            output.read(),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={
+                'Content-Disposition': f'attachment; filename=Metrics-{request_id}.xlsx'
+            }
+        )
+
+        logger.info(f"✅ Successfully created metrics Excel file for request {request_id}")
+        return response
+
+    except Exception as e:
+        logger.error(f"❌ Error downloading metrics: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==========================================
 # DASHBOARD ENDPOINTS - PHASE 4
 # ==========================================

@@ -131,7 +131,7 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center space-x-3">
@@ -140,12 +140,32 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
               Request Statistics - #{requestId}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <MdClose className="h-6 w-6" />
-          </button>
+          <div className="flex items-center space-x-3">
+            {stats && (
+              <button
+                onClick={handleDownload}
+                disabled={downloadLoading}
+                className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center space-x-2 ${
+                  downloadLoading
+                    ? 'bg-green-400 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
+              >
+                {downloadLoading ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                ) : (
+                  <MdDownload className="h-4 w-4" />
+                )}
+                <span>{downloadLoading ? 'Downloading...' : 'Download Excel'}</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <MdClose className="h-6 w-6" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -242,34 +262,6 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
                 </div>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end space-x-3 p-6 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
-          >
-            Close
-          </button>
-          {stats && (
-            <button
-              onClick={handleDownload}
-              disabled={downloadLoading}
-              className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center space-x-2 ${
-                downloadLoading
-                  ? 'bg-green-400 cursor-not-allowed'
-                  : 'bg-green-600 hover:bg-green-700'
-              }`}
-            >
-              {downloadLoading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-              ) : (
-                <MdDownload className="h-4 w-4" />
-              )}
-              <span>{downloadLoading ? 'Downloading...' : 'Download Excel'}</span>
-            </button>
           )}
         </div>
       </div>

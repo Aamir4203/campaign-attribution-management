@@ -114,5 +114,31 @@ export const requestService = {
   async getStatusCounts() {
     const response = await api.get('/api/requests/status-counts');
     return response.data;
+  },
+
+  // Get table columns for metrics
+  async getTableColumns(tableName: string) {
+    const response = await api.get(`/api/tables/${tableName}/columns`);
+    return response.data;
+  },
+
+  // Get client name for a request
+  async getClientName(requestId: number) {
+    const response = await api.get(`/api/requests/${requestId}/client-name`);
+    return response.data;
+  },
+
+  // Get week for a request
+  async getWeek(requestId: number) {
+    const response = await api.get(`/api/requests/${requestId}/week`);
+    return response.data;
+  },
+
+  // Download metrics with custom queries
+  async downloadMetrics(requestId: number, metricsConfig: any) {
+    const response = await api.post(`/api/requests/${requestId}/metrics/download`, metricsConfig, {
+      responseType: 'blob'
+    });
+    return response.data;
   }
 };
