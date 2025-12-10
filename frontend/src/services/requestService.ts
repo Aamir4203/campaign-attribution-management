@@ -60,6 +60,21 @@ export const requestService = {
     return response.data;
   },
 
+  // Get request statistics
+  async getRequestStats(requestId: number) {
+    const response = await api.get(`/api/requests/${requestId}/stats`);
+    return response.data;
+  },
+
+  // Download request statistics as Excel
+  async downloadRequestStats(requestId: number) {
+    const response = await api.get(`/api/requests/${requestId}/stats/download`, {
+      responseType: 'blob'
+    });
+    return response.data;
+  },
+
+
   // Rerun request with specific type
   async rerunRequest(requestId: number, rerunType: string) {
     const response = await api.post(`/api/requests/${requestId}/rerun`, {

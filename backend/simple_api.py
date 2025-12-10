@@ -1138,6 +1138,239 @@ def get_request_details(request_id):
         logger.error(f"Error fetching request details: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/requests/<int:request_id>/stats/download', methods=['GET'])
+def download_request_stats(request_id):
+    """Download request statistics as Excel file with two sheets"""
+    logger.info(f"📊 Download stats endpoint called for request ID: {request_id}")
+
+    try:
+        import pandas as pd
+        from io import BytesIO
+
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Database connection failed for download stats")
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+        requests_table = config.get_table_name('requests')
+        clients_table = config.get_table_name('clients')
+        qa_table = config.get_table_name('qa_stats')
+
+        logger.info(f"Using tables: {requests_table}, {clients_table}, {qa_table}")
+
+        # First query - Main request details
+        main_query = f"""
+        WITH cte AS (
+            SELECT a.REQUEST_ID,CLIENT_NAME,RLTP_FILE_COUNT,REQUEST_STATUS,REQUEST_DESC,REQUEST_START_TIME,
+                   execution_time EXECUTION_TIME,POSTED_UNSUB_HARDS_SUPP_COUNT,OFFERID_UNSUB_SUPP_COUNT OFFERID_SUPPRESSED_COUNT,
+                   SUPPRESSION_COUNT CLIENT_SUPPRESSION_COUNT,MAX_TOUCH_COUNT,LAST_WK_DEL_INSERT_CNT,LAST_WK_UNSUB_INSERT_CNT,
+                   UNIQUE_DELIVERED_COUNT,TotalDeliveredCount,NEW_RECORD_CNT,NEW_ADDED_IP_CNT,TOTAL_RUNNING_UNIQ_CNT,
+                   PREV_WEEK_PB_TABLE,ActualLogsCount,ActualLogsTRTMatchCount,ActualLogsPbReportedCount,Added_By 
+            FROM {requests_table} a 
+            JOIN {clients_table} b ON a.CLIENT_ID=b.CLIENT_ID  
+            JOIN {qa_table} c ON a.REQUEST_ID=c.REQUEST_ID 
+            WHERE a.REQUEST_ID=%s
+        ) 
+        SELECT x.* FROM cte CROSS JOIN LATERAL (VALUES
+            ( 'RequestID', REQUEST_ID::text ),
+            ( 'ClientName', CLIENT_NAME::text ),
+            ( 'TRTFileCount', RLTP_FILE_COUNT::text ),
+            ( 'RequestStatus', REQUEST_STATUS::text ),
+            ( 'RequestDescription', REQUEST_DESC::text ),
+            ( 'StartTime', REQUEST_START_TIME::text ),
+            ( 'TotalExecutionTime', EXECUTION_TIME::text ),
+            ( 'UnsubHardsSuppressionCount', POSTED_UNSUB_HARDS_SUPP_COUNT::text ),
+            ( 'OfferIDSuppressionCount', OFFERID_SUPPRESSED_COUNT::text ),
+            ( 'ClientSuppressionCount', CLIENT_SUPPRESSION_COUNT::text ),
+            ( 'MaxTouchCount', MAX_TOUCH_COUNT::text ),
+            ( 'LastWeekDeliveredInsertedCount', LAST_WK_DEL_INSERT_CNT::text ),
+            ( 'UnsubInsertedCount', LAST_WK_UNSUB_INSERT_CNT::text ),
+            ( 'UniqueDeliveredCount', UNIQUE_DELIVERED_COUNT::text ),
+            ( 'TotalDeliveredCount', TotalDeliveredCount::text ),
+            ( 'NewlyAddedRecordsCount', NEW_RECORD_CNT::text ),
+            ( 'NewlyAddedIPCount', NEW_ADDED_IP_CNT::text ),
+            ( 'TotalRunningUniqueCount', TOTAL_RUNNING_UNIQ_CNT::text ),
+            ( 'DeliveredTable', PREV_WEEK_PB_TABLE::text ),
+            ( 'AddedBy', Added_By::text)
+        ) x(Header, Value)
+        """
+
+        cursor.execute(main_query, (request_id,))
+        main_stats = cursor.fetchall()
+
+        # Second query - Logs details
+        logs_query = f"""
+        WITH cte AS (
+            SELECT actuallogscount,actuallogstrtmatchcount,actuallogspbreportedcount,actualopenscount,
+                   openstrtmatchcount,openspbreportedcount,actualclickscount,clickstrtmatchcount,
+                   clickspbreportedcount,openstoopenspbreportedgencount,clickstoclickspbreportedgencount 
+            FROM {requests_table} a 
+            JOIN {clients_table} b ON a.CLIENT_ID=b.CLIENT_ID  
+            JOIN {qa_table} c ON a.REQUEST_ID=c.REQUEST_ID 
+            WHERE a.REQUEST_ID=%s
+        ) 
+        SELECT x.* FROM cte CROSS JOIN LATERAL (VALUES
+            ( 'ActuaLogsCount', actuallogscount::text ),
+            ( 'ActualLogsTRTmatchCount', actuallogstrtmatchcount::text ),
+            ( 'ActualLogsPBreportedCount', actuallogspbreportedcount::text ),
+            ( 'ActualOpensCount', actualopenscount::text ),
+            ( 'OpensTRTmatchCount', openstrtmatchcount::text ),
+            ( 'OpensPBreportedCount', openspbreportedcount::text ),
+            ( 'ActualClicksCount', actualclickscount::text ),
+            ( 'ClicksTRTmatchCount', clickstrtmatchcount::text ),
+            ( 'ClicksPBreportedCount', clickspbreportedcount::text ),
+            ( 'OpensToOpensPBreportedGenCount', openstoopenspbreportedgencount::text ),
+            ( 'ClicksToClicksPBreportedGenCount', clickstoclickspbreportedgencount::text )
+        ) x(Header, Value)
+        """
+
+        cursor.execute(logs_query, (request_id,))
+        logs_stats = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        # Create DataFrames
+        request_df = pd.DataFrame(main_stats, columns=['Name', 'Value'])
+        logs_df = pd.DataFrame(logs_stats, columns=['Name', 'Value'])
+
+        # Create Excel file with two sheets
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            request_df.to_excel(writer, sheet_name='Request Details', index=False)
+            logs_df.to_excel(writer, sheet_name='Logs Details', index=False)
+
+        output.seek(0)
+
+        # Create response
+        response = app.response_class(
+            output.read(),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={
+                'Content-Disposition': f'attachment; filename=RequestDetails-{request_id}.xlsx'
+            }
+        )
+
+        logger.info(f"Successfully created Excel file for request {request_id}")
+        return response
+
+    except Exception as e:
+        logger.error(f"Error downloading request stats: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/requests/<int:request_id>/stats', methods=['GET'])
+def get_request_stats(request_id):
+    """Get detailed statistics for a specific request"""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+        requests_table = config.get_table_name('requests')
+        clients_table = config.get_table_name('clients')
+        qa_table = config.get_table_name('qa_stats')
+
+        # First query - Main request details
+        main_query = f"""
+        WITH cte AS (
+            SELECT a.REQUEST_ID,CLIENT_NAME,RLTP_FILE_COUNT,REQUEST_STATUS,REQUEST_DESC,REQUEST_START_TIME,
+                   execution_time EXECUTION_TIME,POSTED_UNSUB_HARDS_SUPP_COUNT,OFFERID_UNSUB_SUPP_COUNT OFFERID_SUPPRESSED_COUNT,
+                   SUPPRESSION_COUNT CLIENT_SUPPRESSION_COUNT,MAX_TOUCH_COUNT,LAST_WK_DEL_INSERT_CNT,LAST_WK_UNSUB_INSERT_CNT,
+                   UNIQUE_DELIVERED_COUNT,TotalDeliveredCount,NEW_RECORD_CNT,NEW_ADDED_IP_CNT,TOTAL_RUNNING_UNIQ_CNT,
+                   PREV_WEEK_PB_TABLE,ActualLogsCount,ActualLogsTRTMatchCount,ActualLogsPbReportedCount,Added_By 
+            FROM {requests_table} a 
+            JOIN {clients_table} b ON a.CLIENT_ID=b.CLIENT_ID  
+            JOIN {qa_table} c ON a.REQUEST_ID=c.REQUEST_ID 
+            WHERE a.REQUEST_ID=%s
+        ) 
+        SELECT x.* FROM cte CROSS JOIN LATERAL (VALUES
+            ( 'RequestID', REQUEST_ID::text ),
+            ( 'ClientName', CLIENT_NAME::text ),
+            ( 'TRTFileCount', RLTP_FILE_COUNT::text ),
+            ( 'RequestStatus', REQUEST_STATUS::text ),
+            ( 'RequestDescription', REQUEST_DESC::text ),
+            ( 'StartTime', REQUEST_START_TIME::text ),
+            ( 'TotalExecutionTime', EXECUTION_TIME::text ),
+            ( 'UnsubHardsSuppressionCount', POSTED_UNSUB_HARDS_SUPP_COUNT::text ),
+            ( 'OfferIDSuppressionCount', OFFERID_SUPPRESSED_COUNT::text ),
+            ( 'ClientSuppressionCount', CLIENT_SUPPRESSION_COUNT::text ),
+            ( 'MaxTouchCount', MAX_TOUCH_COUNT::text ),
+            ( 'LastWeekDeliveredInsertedCount', LAST_WK_DEL_INSERT_CNT::text ),
+            ( 'UnsubInsertedCount', LAST_WK_UNSUB_INSERT_CNT::text ),
+            ( 'UniqueDeliveredCount', UNIQUE_DELIVERED_COUNT::text ),
+            ( 'TotalDeliveredCount', TotalDeliveredCount::text ),
+            ( 'NewlyAddedRecordsCount', NEW_RECORD_CNT::text ),
+            ( 'NewlyAddedIPCount', NEW_ADDED_IP_CNT::text ),
+            ( 'TotalRunningUniqueCount', TOTAL_RUNNING_UNIQ_CNT::text ),
+            ( 'DeliveredTable', PREV_WEEK_PB_TABLE::text ),
+            ( 'AddedBy', Added_By::text)
+        ) x(Header, Value)
+        """
+
+        cursor.execute(main_query, (request_id,))
+        main_stats = cursor.fetchall()
+
+        # Second query - Logs details
+        logs_query = f"""
+        WITH cte AS (
+            SELECT actuallogscount,actuallogstrtmatchcount,actuallogspbreportedcount,actualopenscount,
+                   openstrtmatchcount,openspbreportedcount,actualclickscount,clickstrtmatchcount,
+                   clickspbreportedcount,openstoopenspbreportedgencount,clickstoclickspbreportedgencount 
+            FROM {requests_table} a 
+            JOIN {clients_table} b ON a.CLIENT_ID=b.CLIENT_ID  
+            JOIN {qa_table} c ON a.REQUEST_ID=c.REQUEST_ID 
+            WHERE a.REQUEST_ID=%s
+        ) 
+        SELECT x.* FROM cte CROSS JOIN LATERAL (VALUES
+            ( 'ActuaLogsCount', actuallogscount::text ),
+            ( 'ActualLogsTRTmatchCount', actuallogstrtmatchcount::text ),
+            ( 'ActualLogsPBreportedCount', actuallogspbreportedcount::text ),
+            ( 'ActualOpensCount', actualopenscount::text ),
+            ( 'OpensTRTmatchCount', openstrtmatchcount::text ),
+            ( 'OpensPBreportedCount', openspbreportedcount::text ),
+            ( 'ActualClicksCount', actualclickscount::text ),
+            ( 'ClicksTRTmatchCount', clickstrtmatchcount::text ),
+            ( 'ClicksPBreportedCount', clickspbreportedcount::text ),
+            ( 'OpensToOpensPBreportedGenCount', openstoopenspbreportedgencount::text ),
+            ( 'ClicksToClicksPBreportedGenCount', clickstoclickspbreportedgencount::text )
+        ) x(Header, Value)
+        """
+
+        cursor.execute(logs_query, (request_id,))
+        logs_stats = cursor.fetchall()
+
+        # Format the results
+        request_details = []
+        for row in main_stats:
+            request_details.append({
+                'header': row[0],
+                'value': row[1] if row[1] is not None else 'N/A'
+            })
+
+        logs_details = []
+        for row in logs_stats:
+            logs_details.append({
+                'header': row[0],
+                'value': row[1] if row[1] is not None else 'N/A'
+            })
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'stats': {
+                'request_details': request_details,
+                'logs_details': logs_details
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching request stats: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/requests/<int:request_id>/rerun', methods=['POST'])
 def rerun_request(request_id):
     """Trigger rerun for a specific request with module selection"""

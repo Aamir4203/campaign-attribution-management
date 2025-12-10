@@ -1061,3 +1061,55 @@ request_id | process_ids | current_module | status
 ✅ **Production Ready** - Comprehensive logging and error handling
 
 ---
+
+## 📊 **REQUEST STATISTICS VIEWING & EXPORT**
+
+### **Overview**
+Complete request statistics viewing and Excel export functionality for completed requests.
+
+### **Features**
+- **📋 Statistics Modal** - View detailed request statistics in popup
+- **📥 Excel Export** - Download statistics as Excel with two sheets
+- **🎨 Formatted Display** - Proper spacing and readable format
+- **📊 Comprehensive Data** - Request details and logs statistics
+
+### **Access**
+1. Navigate to Request Monitor page
+2. Find completed requests (Status: 'C')
+3. Click **View** button (👁️ icon) in Actions column
+4. Statistics popup opens with scrollable content
+
+### **Excel Download**
+- Click **"Download Excel"** button in statistics modal
+- Automatically downloads: `RequestDetails-{requestId}.xlsx`
+- **Two sheets included:**
+  - **"Request Details"** - Core request information
+  - **"Logs Details"** - Processing logs statistics
+
+### **Data Fields**
+
+#### **Request Details Sheet:**
+- Request ID, Client Name, TRT File Count
+- Request Status, Description, Start Time
+- Total Execution Time, Suppression Counts
+- Touch Counts, Delivery Counts
+- Record Counts, IP Counts, Table Names
+
+#### **Logs Details Sheet:**
+- Actual Logs Count, TRT Match Count
+- PB Reported Count, Opens Count
+- Clicks Count, Match Statistics
+- Generated Count Statistics
+
+### **Backend API Endpoints**
+
+```python
+# View statistics in modal
+GET /api/requests/{request_id}/stats
+
+# Download Excel file
+GET /api/requests/{request_id}/stats/download
+```
+
+---
+

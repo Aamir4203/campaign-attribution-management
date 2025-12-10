@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { requestService } from '../services/requestService';
 import { MdCancel, MdRefresh, MdVisibility, MdBarChart, MdAttachFile, MdEdit } from 'react-icons/md';
+import RequestStatsModal from '../components/RequestStatsModal';
 
 // Custom Alert Modal Component
 const AlertModal: React.FC<{
@@ -435,23 +436,33 @@ const EditButton: React.FC<{ request: Request }> = ({ request }) => {
 
 
 const ViewButton: React.FC<{ request: Request; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAlert }) => {
+  const [showStatsModal, setShowStatsModal] = useState(false);
+
   // Only show for Completed status (matching LogStreamr logic)
   if (request.request_status !== 'C') {
     return <span></span>;
   }
 
   const handleView = () => {
-    onAlert('Coming Soon', `View details for request ${request.request_id} - Feature coming soon`, 'info');
+    setShowStatsModal(true);
   };
 
   return (
-    <button
-      onClick={handleView}
-      className="text-gray-600 hover:text-gray-800 transition-colors p-1"
-      title="View Details"
-    >
-      <MdVisibility className="w-4 h-4" />
-    </button>
+    <>
+      <button
+        onClick={handleView}
+        className="text-gray-600 hover:text-gray-800 transition-colors p-1"
+        title="View Statistics"
+      >
+        <MdVisibility className="w-4 h-4" />
+      </button>
+
+      <RequestStatsModal
+        isOpen={showStatsModal}
+        onClose={() => setShowStatsModal(false)}
+        requestId={request.request_id}
+      />
+    </>
   );
 };
 
