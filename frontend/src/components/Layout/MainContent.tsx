@@ -17,7 +17,7 @@ export const MainContent: React.FC<MainContentProps> = ({
       style={{
         paddingTop: '4rem',
         paddingLeft: sidebarOpen ? '100px' : '64px',
-        paddingRight: '0px',
+        paddingRight: '8px',
         paddingBottom: '0px',
         marginLeft: '0px',
         transition: 'padding-left 0.3s ease-in-out'

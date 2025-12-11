@@ -23,7 +23,15 @@ TRT_TABLE = sys.argv[3]
 QA_TABLE = sys.argv[4]
 
 # Track this process
-subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {REQUEST_ID} "REQUEST_ID_SUPPRESSION"'], check=False)
+track_command = f'''
+track_process() {{
+    source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+    source $TRACKING_HELPER
+    append_process_id $1 "REQUEST_ID_SUPPRESSION"
+}}
+track_process {REQUEST_ID}
+'''
+subprocess.run(['bash', '-c', track_command], check=False)
 
 logger.info(f"Started Request Suppression Script for REQUEST_ID={REQUEST_ID}")
 

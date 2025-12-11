@@ -150,7 +150,15 @@ if __name__ == "__main__":
         request_id=sys.argv[1]
 
         # Track main process
-        subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {request_id} "TRT_IF_CHECK"'], check=False)
+        track_command = f'''
+        track_process() {{
+            source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+            source $TRACKING_HELPER
+            append_process_id $1 "TRT_IF_CHECK"
+        }}
+        track_process {request_id}
+        '''
+        subprocess.run(['bash', '-c', track_command], check=False)
 
         path='/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/'+request_id
         lpath=path+"/LOGS"

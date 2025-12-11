@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { requestService } from '../services/requestService';
-import { MdCancel, MdRefresh, MdVisibility, MdBarChart, MdAttachFile, MdEdit } from 'react-icons/md';
+import { MdCancel, MdVisibility, MdBarChart, MdAttachFile, MdEdit } from 'react-icons/md';
 import RequestStatsModal from '../components/RequestStatsModal';
 import MetricsModal from '../components/MetricsModal';
 
@@ -707,9 +707,14 @@ const RequestLogs: React.FC = () => {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm"
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm"
+            title={refreshing ? 'Refreshing...' : 'Refresh'}
           >
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            {refreshing ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <span>🔄</span>
+            )}
           </button>
         </div>
       </div>
