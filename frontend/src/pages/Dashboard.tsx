@@ -300,7 +300,7 @@ const Dashboard: React.FC = () => {
               className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
               title={loading ? 'Refreshing...' : 'Refresh'}
             >
-              🔄
+              ↻
             </button>
             <div className="text-sm text-gray-500">
               Last updated: {lastUpdated.toLocaleTimeString()}
@@ -463,9 +463,9 @@ const Dashboard: React.FC = () => {
                 </button>
                 <span className="text-xs text-gray-500">{getDateFilterLabel(dateFilter)}</span>
                 <span className="text-gray-400 text-base transition-transform duration-200" style={{
-                  transform: isUserActivityExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
+                  transform: isUserActivityExpanded ? 'rotate(90deg)' : 'rotate(0deg)'
                 }}>
-                  ▼
+                  ›
                 </span>
               </div>
             </div>
@@ -507,21 +507,25 @@ const Dashboard: React.FC = () => {
               ) : users.length > 0 ? (
                 <>
                   {userActivityViewMode === 'list' ? (
-                    <div className="space-y-1 max-h-60 overflow-y-auto mt-2">
+                    <div className="space-y-2 max-h-60 overflow-y-auto mt-2">
                       {users.map((user, index) => (
-                        <div key={index} className="grid grid-cols-3 gap-3 items-center py-2 px-2 border border-gray-100 rounded hover:bg-gray-50">
+                        <div key={index} className="grid grid-cols-4 gap-3 items-center py-3 px-3 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all">
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{user.username}</p>
-                            <p className="text-xs text-gray-500 truncate">
-                              {user.total_requests} requests
+                            <p className="text-sm font-semibold text-gray-900 truncate">{user.username}</p>
+                            <p className="text-xs text-gray-600 truncate">
+                              {formatNumber(user.total_requests)} total requests
                             </p>
                           </div>
                           <div className="text-center">
-                            <p className="text-xs text-green-600 font-medium">{user.completed_requests} completed</p>
-                            <p className="text-xs text-gray-500">{user.success_rate}% success</p>
+                            <p className="text-sm font-bold text-green-600">{formatNumber(user.completed_requests)}</p>
+                            <p className="text-xs text-gray-500">completed</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-bold text-blue-600">{user.success_rate.toFixed(1)}%</p>
+                            <p className="text-xs text-gray-500">success rate</p>
                           </div>
                           <div className="text-right">
-                            <p className="text-xs text-blue-600 font-medium">{formatExecutionTime(user.avg_execution_hours)}</p>
+                            <p className="text-sm font-bold text-purple-600">{formatExecutionTime(user.avg_execution_hours)}</p>
                             <p className="text-xs text-gray-500">avg time</p>
                           </div>
                         </div>

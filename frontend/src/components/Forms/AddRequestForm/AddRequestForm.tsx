@@ -5,6 +5,9 @@ import { addRequestSchema, AddRequestFormData } from '../../../utils/validation'
 import ClientService from '../../../services/clientService';
 import api from '../../../services/api';
 import { useAuth } from '../../Auth';
+import FlushDeliveryDataModal from '../../Modal/FlushDeliveryDataModal';
+import SuccessModal from '../../Modal/SuccessModal';
+import ErrorModal from '../../Modal/ErrorModal';
 
 // Simple AlertModal component
 const AlertModal: React.FC<{
@@ -69,6 +72,18 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const [backendConnected, setBackendConnected] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastSubmittedRequestId, setLastSubmittedRequestId] = useState<string | number | null>(null);
+
+  // Flush delivery data modal states
+  const [showFlushModal, setShowFlushModal] = useState(false);
+  const [flushLoading, setFlushLoading] = useState(false);
+  const [weekTriggerTimeout, setWeekTriggerTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [weekTriggerPending, setWeekTriggerPending] = useState(false);
+
+  // Success and Error modal states
+  const [showFlushSuccessModal, setShowFlushSuccessModal] = useState(false);
+  const [flushSuccessMessage, setFlushSuccessMessage] = useState('');
+  const [showFlushErrorModal, setShowFlushErrorModal] = useState(false);
+  const [flushErrorMessage, setFlushErrorMessage] = useState('');
 
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set([1])); // Section 1 open by default
@@ -137,6 +152,66 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const addTimeStamp = watch('addTimeStamp');
   const endDate = watch('endDate');
   const residualStart = watch('residualStart');
+  const weekValue = watch('week');
+  const clientName = watch('clientName');
+
+  // W1/W2 Detection Logic with Debouncing
+  useEffect(() => {
+    // Clear any existing timeout and reset pending state
+    if (weekTriggerTimeout) {
+      clearTimeout(weekTriggerTimeout);
+      setWeekTriggerPending(false);
+    }
+
+    if (weekValue && clientName) {
+      // Improved regex to detect W1 or W2 more precisely
+      // This will match w1, w2 but NOT w11, w12, w21, etc.
+      // Handles separators like underscores, spaces, etc.
+      const w1w2Regex = /(?:^|[^a-zA-Z0-9])w[12](?![0-9])/i;
+
+      if (w1w2Regex.test(weekValue)) {
+        console.log('🔍 W1/W2 pattern detected, waiting 3 seconds...', weekValue);
+        setWeekTriggerPending(true);
+
+        // Set a 3-second delay before showing modal
+        const timeout = setTimeout(() => {
+          // Double-check the pattern still matches after 3 seconds
+          if (weekValue && w1w2Regex.test(weekValue) && clientName) {
+            console.log('✅ Triggering flush modal after 3-second delay');
+            setWeekTriggerPending(false);
+            setShowFlushModal(true);
+          } else {
+            setWeekTriggerPending(false);
+          }
+        }, 3000);
+
+        setWeekTriggerTimeout(timeout);
+      } else {
+        setWeekTriggerPending(false);
+        console.log('📝 Week value changed but no W1/W2 pattern:', weekValue);
+      }
+    } else {
+      setWeekTriggerPending(false);
+    }
+
+    // Cleanup function
+    return () => {
+      if (weekTriggerTimeout) {
+        clearTimeout(weekTriggerTimeout);
+        setWeekTriggerPending(false);
+      }
+    };
+  }, [weekValue, clientName]);
+
+  // Cleanup timeout on component unmount
+  useEffect(() => {
+    return () => {
+      if (weekTriggerTimeout) {
+        clearTimeout(weekTriggerTimeout);
+        setWeekTriggerPending(false);
+      }
+    };
+  }, []);
 
 
   // Load data on mount
@@ -357,6 +432,52 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     }
   };
 
+  const handleFlushDeliveryData = async () => {
+    try {
+      setFlushLoading(true);
+
+      const response = await ClientService.flushDeliveryData(clientName);
+
+      if (response.success) {
+        console.log('✅ Flush successful:', response);
+        // Show custom success modal
+        const successMessage = `Successfully flushed ${response.details.records_flushed.toLocaleString()} records from ${response.details.table_name}`;
+        setFlushSuccessMessage(successMessage);
+        setShowFlushSuccessModal(true);
+      } else {
+        console.error('❌ Flush failed:', response.error);
+        // Show custom error modal
+        setFlushErrorMessage(response.error || 'Unknown error occurred');
+        setShowFlushErrorModal(true);
+      }
+    } catch (error: any) {
+      console.error('❌ Flush error:', error);
+      const errorMessage = error?.response?.data?.error || error?.message || 'Unknown error occurred';
+      // Show custom error modal
+      setFlushErrorMessage(`Failed to flush delivery data:\n${errorMessage}`);
+      setShowFlushErrorModal(true);
+    } finally {
+      setFlushLoading(false);
+      setShowFlushModal(false);
+      // Clear timeout when modal is closed
+      if (weekTriggerTimeout) {
+        clearTimeout(weekTriggerTimeout);
+        setWeekTriggerTimeout(null);
+      }
+      setWeekTriggerPending(false);
+    }
+  };
+
+  const handleFlushModalClose = () => {
+    setShowFlushModal(false);
+    // Clear timeout when modal is manually closed
+    if (weekTriggerTimeout) {
+      clearTimeout(weekTriggerTimeout);
+      setWeekTriggerTimeout(null);
+    }
+    setWeekTriggerPending(false);
+  };
+
   const onSubmit = async (data: AddRequestFormData) => {
     try {
       setSubmitting(true);
@@ -485,7 +606,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           >
             <div className="flex items-center space-x-2">
               <span className="text-blue-600 font-semibold text-sm">1.</span>
-              <span className="text-base">👤</span>
               <h3 className="text-sm font-medium text-gray-800">Client Information</h3>
               {watch('clientName') && watch('requestType') && (
                 <span className="text-green-600 text-xs">✓</span>
@@ -496,7 +616,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <span className="text-sm">
-                {expandedSections.has(1) ? '▼' : '▶'}
+                {expandedSections.has(1) ? '⋯' : '›'}
               </span>
             </button>
           </div>
@@ -580,7 +700,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           >
             <div className="flex items-center space-x-2">
               <span className="text-green-600 font-semibold text-sm">2.</span>
-              <span className="text-base">📅</span>
               <h3 className="text-sm font-medium text-gray-800">Campaign Dates</h3>
               {watch('startDate') && watch('endDate') && watch('residualStart') && watch('week') && (
                 <span className="text-green-600 text-xs">✓</span>
@@ -591,7 +710,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <span className="text-sm">
-                {expandedSections.has(2) ? '▼' : '▶'}
+                {expandedSections.has(2) ? '⋯' : '›'}
               </span>
             </button>
           </div>
@@ -644,15 +763,29 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
                     Week *
+                    {weekTriggerPending && (
+                      <span className="ml-2 text-xs text-red-600 animate-pulse">
+                        ⏱️ Detecting cycle...
+                      </span>
+                    )}
                   </label>
                   <input
                     type="text"
                     {...register('week')}
-                    className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className={`w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 text-sm ${
+                      weekTriggerPending
+                        ? 'border-red-300 focus:ring-red-500 bg-red-50'
+                        : 'border-gray-300 focus:ring-green-500'
+                    }`}
                     placeholder="e.g., Q4_W8"
                   />
                   {errors.week && (
                     <p className="mt-1 text-xs text-red-600">{errors.week.message}</p>
+                  )}
+                  {weekTriggerPending && (
+                    <p className="mt-1 text-xs text-red-600">
+                      W1/W2 detected - checking for new cycle...
+                    </p>
                   )}
                 </div>
               </div>
@@ -668,7 +801,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           >
             <div className="flex items-center space-x-2">
               <span className="text-yellow-600 font-semibold text-sm">3.</span>
-              <span className="text-base">⚙️</span>
               <h3 className="text-sm font-medium text-gray-800">File Settings</h3>
               {watch('fileType') && (
                 <span className="text-green-600 text-xs">✓</span>
@@ -679,7 +811,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <span className="text-sm">
-                {expandedSections.has(3) ? '▼' : '▶'}
+                {expandedSections.has(3) ? '⋯' : '›'}
               </span>
             </button>
           </div>
@@ -773,7 +905,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           >
             <div className="flex items-center space-x-2">
               <span className="text-purple-600 font-semibold text-sm">4.</span>
-              <span className="text-base">📋</span>
               <h3 className="text-sm font-medium text-gray-800">Report Paths</h3>
               {watch('reportpath') && watch('qspath') && (
                 <span className="text-green-600 text-xs">✓</span>
@@ -784,7 +915,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <span className="text-sm">
-                {expandedSections.has(4) ? '▼' : '▶'}
+                {expandedSections.has(4) ? '⋯' : '›'}
               </span>
             </button>
           </div>
@@ -834,7 +965,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           >
             <div className="flex items-center space-x-2">
               <span className="text-red-600 font-semibold text-sm">5.</span>
-              <span className="text-base">➖</span>
               <h3 className="text-sm font-medium text-gray-800">Suppression List</h3>
             </div>
             <button
@@ -842,7 +972,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <span className="text-sm">
-                {expandedSections.has(5) ? '▼' : '▶'}
+                {expandedSections.has(5) ? '⋯' : '›'}
               </span>
             </button>
           </div>
@@ -925,7 +1055,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           >
             <div className="flex items-center space-x-2">
               <span className="text-orange-600 font-semibold text-sm">6.</span>
-              <span className="text-base">📶</span>
               <h3 className="text-sm font-medium text-gray-800">Data Priority</h3>
             </div>
             <button
@@ -933,7 +1062,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <span className="text-sm">
-                {expandedSections.has(6) ? '▼' : '▶'}
+                {expandedSections.has(6) ? '⋯' : '›'}
               </span>
             </button>
           </div>
@@ -987,7 +1116,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           >
             <div className="flex items-center space-x-2">
               <span className="text-indigo-600 font-semibold text-sm">7.</span>
-              <span className="text-base">📝</span>
               <h3 className="text-sm font-medium text-gray-800">SQL Query</h3>
               {watch('input_query') && (
                 <span className="text-green-600 text-xs">✓</span>
@@ -998,7 +1126,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <span className="text-sm">
-                {expandedSections.has(7) ? '▼' : '▶'}
+                {expandedSections.has(7) ? '⋯' : '›'}
               </span>
             </button>
           </div>
@@ -1032,7 +1160,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
             >
               <div className="flex items-center space-x-2">
                 <span className="text-purple-600 font-semibold text-sm">8.</span>
-                <span className="text-base">↻</span>
                 <h3 className="text-sm font-medium text-gray-800">ReRun Module</h3>
               </div>
               <button
@@ -1040,7 +1167,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                 className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <span className="text-sm">
-                  {expandedSections.has(8) ? '▼' : '▶'}
+                  {expandedSections.has(8) ? '⋯' : '›'}
                 </span>
               </button>
             </div>
@@ -1149,6 +1276,32 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           </div>
         </div>
       )}
+
+      {/* Flush Delivery Data Modal */}
+      <FlushDeliveryDataModal
+        isOpen={showFlushModal}
+        onClose={handleFlushModalClose}
+        onConfirm={handleFlushDeliveryData}
+        clientName={clientName || ''}
+        weekValue={weekValue || ''}
+        loading={flushLoading}
+      />
+
+      {/* Flush Success Modal */}
+      <SuccessModal
+        isOpen={showFlushSuccessModal}
+        onClose={() => setShowFlushSuccessModal(false)}
+        title="Flush Operation Successful"
+        message={flushSuccessMessage}
+      />
+
+      {/* Flush Error Modal */}
+      <ErrorModal
+        isOpen={showFlushErrorModal}
+        onClose={() => setShowFlushErrorModal(false)}
+        title="Flush Operation Failed"
+        message={flushErrorMessage}
+      />
 
       {/* TODO: Add AlertModal when alert system is properly implemented */}
     </div>

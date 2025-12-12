@@ -317,13 +317,14 @@ const KillButton: React.FC<{ request: Request; onAction: () => void; onAlert: (t
               )}
               Are you sure you want to {lastCancelFailed ? 'retry cancelling' : 'cancel'} request{' '}
               <span className="font-semibold text-gray-900">#{request.request_id}</span>?
-              <br />
-              <span className="text-sm text-gray-500 mt-2 block">
-                {lastCancelFailed
-                  ? 'This will attempt to terminate any remaining processes.'
-                  : 'This action cannot be undone.'
-                }
-              </span>
+              {lastCancelFailed && (
+                <>
+                  <br />
+                  <span className="text-sm text-gray-500 mt-2 block">
+                    This will attempt to terminate any remaining processes.
+                  </span>
+                </>
+              )}
             </p>
             <div className="flex justify-end space-x-3">
               <button
@@ -509,10 +510,14 @@ const MetricsButton: React.FC<{ request: Request; onAlert: (title: string, messa
       <button
         onClick={handleMetrics}
         disabled={loading}
-        className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1"
+        className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1 relative"
         title="Download Metrics"
       >
-        <MdBarChart className="w-4 h-4" />
+        {loading ? (
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-600 border-t-transparent"></div>
+        ) : (
+          <MdBarChart className="w-4 h-4" />
+        )}
       </button>
 
       <MetricsModal
@@ -713,7 +718,7 @@ const RequestLogs: React.FC = () => {
             {refreshing ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             ) : (
-              <span>🔄</span>
+              <span>↻</span>
             )}
           </button>
         </div>

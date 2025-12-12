@@ -211,13 +211,14 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded shadow-xl w-full max-w-lg mx-4 max-h-[60vh] flex flex-col">
+      <div className="bg-white rounded shadow-xl w-full max-w-lg mx-4 max-h-[60vh] flex flex-col relative">
         {/* Download Loading Overlay */}
         {downloadLoading && (
-          <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-10 rounded">
-            <div className="bg-white rounded p-3 flex flex-col items-center space-y-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-600 border-t-transparent"></div>
-              <span className="text-gray-700 text-xs font-medium">Downloading...</span>
+          <div className="absolute inset-0 bg-white bg-opacity-95 flex items-center justify-center z-10 rounded">
+            <div className="bg-white rounded-lg shadow-lg p-6 flex flex-col items-center space-y-3 border">
+              <div className="animate-spin rounded-full h-8 w-8 border-4 border-green-600 border-t-transparent"></div>
+              <span className="text-gray-700 text-sm font-medium">Preparing metrics download...</span>
+              <span className="text-gray-500 text-xs">This may take a few moments</span>
             </div>
           </div>
         )}
@@ -233,18 +234,23 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
             <button
               onClick={handleDownload}
               disabled={downloadLoading || (metricType === 'custom' && customQueries.length === 0 && !includeStandardHeaders)}
-              className={`px-2 py-1 text-xs font-medium text-white border border-transparent rounded flex items-center space-x-1 ${
+              className={`px-3 py-2 text-sm font-medium text-white border border-transparent rounded flex items-center space-x-2 transition-all duration-200 ${
                 downloadLoading || (metricType === 'custom' && customQueries.length === 0 && !includeStandardHeaders)
                   ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-green-600 hover:bg-green-700'
+                  : 'bg-green-600 hover:bg-green-700 hover:shadow-md'
               }`}
             >
               {downloadLoading ? (
-                <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  <span>Generating...</span>
+                </>
               ) : (
-                <MdDownload className="h-3 w-3" />
+                <>
+                  <MdDownload className="h-4 w-4" />
+                  <span>Download</span>
+                </>
               )}
-              <span>{downloadLoading ? 'Downloading...' : 'Download'}</span>
             </button>
             <button
               onClick={onClose}
