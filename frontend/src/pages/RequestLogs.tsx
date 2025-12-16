@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { requestService } from '../services/requestService';
-import { MdCancel, MdRefresh, MdVisibility, MdBarChart, MdAttachFile, MdEdit } from 'react-icons/md';
+import { MdCancel, MdVisibility, MdBarChart, MdAttachFile, MdEdit } from 'react-icons/md';
 import RequestStatsModal from '../components/RequestStatsModal';
+import MetricsModal from '../components/MetricsModal';
 
 // Custom Alert Modal Component
 const AlertModal: React.FC<{
@@ -316,13 +317,14 @@ const KillButton: React.FC<{ request: Request; onAction: () => void; onAlert: (t
               )}
               Are you sure you want to {lastCancelFailed ? 'retry cancelling' : 'cancel'} request{' '}
               <span className="font-semibold text-gray-900">#{request.request_id}</span>?
-              <br />
-              <span className="text-sm text-gray-500 mt-2 block">
-                {lastCancelFailed
-                  ? 'This will attempt to terminate any remaining processes.'
-                  : 'This action cannot be undone.'
-                }
-              </span>
+              {lastCancelFailed && (
+                <>
+                  <br />
+                  <span className="text-sm text-gray-500 mt-2 block">
+                    This will attempt to terminate any remaining processes.
+                  </span>
+                </>
+              )}
             </p>
             <div className="flex justify-end space-x-3">
               <button
@@ -467,43 +469,65 @@ const ViewButton: React.FC<{ request: Request; onAlert: (title: string, message:
 };
 
 const MetricsButton: React.FC<{ request: Request; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAlert }) => {
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [clientName, setClientName] = useState<string>('');
+  const [week, setWeek] = useState<string>('');
+  const [loading, setLoading] = useState(false);
 
-  // Only show for Completed status (matching LogStreamr logic)
+  // Only show for Completed status
   if (request.request_status !== 'C') {
     return <span></span>;
   }
 
   const handleMetrics = async () => {
-    setIsProcessing(true);
-    try {
-      const blob = await requestService.downloadRequest(request.request_id);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `request_${request.request_id}_metrics.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      onAlert('Success', 'Metrics file download started successfully', 'success');
-    } catch (error) {
-      console.error('Metrics download failed:', error);
-      onAlert('Info', 'Metrics functionality not available yet.', 'info');
-    } finally {
-      setIsProcessing(false);
+    if (!clientName || !week) {
+      setLoading(true);
+      try {
+        // Fetch client name and week using the same queries as in config.properties
+        const clientResponse = await requestService.getClientName(request.request_id);
+        const weekResponse = await requestService.getWeek(request.request_id);
+
+        if (clientResponse.success && weekResponse.success) {
+          setClientName(clientResponse.clientName || '');
+          setWeek(weekResponse.week || '');
+        } else {
+          onAlert('Error', 'Failed to fetch request details for metrics', 'error');
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to fetch request details:', error);
+        onAlert('Error', 'Failed to fetch request details for metrics', 'error');
+        return;
+      } finally {
+        setLoading(false);
+      }
     }
+    setShowModal(true);
   };
 
   return (
-    <button
-      onClick={handleMetrics}
-      disabled={isProcessing}
-      className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1"
-      title="Download Metrics"
-    >
-      <MdBarChart className="w-4 h-4" />
-    </button>
+    <>
+      <button
+        onClick={handleMetrics}
+        disabled={loading}
+        className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1 relative"
+        title="Download Metrics"
+      >
+        {loading ? (
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-600 border-t-transparent"></div>
+        ) : (
+          <MdBarChart className="w-4 h-4" />
+        )}
+      </button>
+
+      <MetricsModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        requestId={request.request_id}
+        clientName={clientName}
+        week={week}
+      />
+    </>
   );
 };
 
@@ -516,26 +540,14 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: 
   }
 
   const handleUpload = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.zip,.csv,.txt';
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        setIsProcessing(true);
-        try {
-          await requestService.uploadRequest(request.request_id, file);
-          onAlert('Success', `File uploaded successfully for request ${request.request_id}`, 'success');
-          onAction();
-        } catch (error) {
-          console.error('Upload failed:', error);
-          onAlert('Info', 'Upload functionality not available yet.', 'info');
-        } finally {
-          setIsProcessing(false);
-        }
-      }
-    };
-    input.click();
+    // Disable functionality - just set processing state and show alert
+    setIsProcessing(true);
+    onAlert('Info', 'Upload functionality is temporarily disabled.', 'info');
+
+    // Reset the processing state after a short delay to allow user to see the feedback
+    setTimeout(() => {
+      setIsProcessing(false);
+    }, 1500);
   };
 
   return (
@@ -543,9 +555,13 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: 
       onClick={handleUpload}
       disabled={isProcessing}
       className="text-purple-600 hover:text-purple-800 transition-colors disabled:opacity-50 p-1"
-      title="Upload File"
+      title={isProcessing ? "Upload in progress..." : "Upload File"}
     >
-      <MdAttachFile className="w-4 h-4" />
+      {isProcessing ? (
+        <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+      ) : (
+        <MdAttachFile className="w-4 h-4" />
+      )}
     </button>
   );
 };
@@ -696,9 +712,14 @@ const RequestLogs: React.FC = () => {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm"
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-sm"
+            title={refreshing ? 'Refreshing...' : 'Refresh'}
           >
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            {refreshing ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <span>↻</span>
+            )}
           </button>
         </div>
       </div>

@@ -9,6 +9,7 @@ from flask_cors import CORS
 import logging
 import psycopg2
 import time
+import os
 from datetime import datetime, timedelta
 from config.config import get_config
 
@@ -1162,11 +1163,11 @@ def download_request_stats(request_id):
         # First query - Main request details
         main_query = f"""
         WITH cte AS (
-            SELECT a.REQUEST_ID,CLIENT_NAME,RLTP_FILE_COUNT,REQUEST_STATUS,REQUEST_DESC,REQUEST_START_TIME,
-                   execution_time EXECUTION_TIME,POSTED_UNSUB_HARDS_SUPP_COUNT,OFFERID_UNSUB_SUPP_COUNT OFFERID_SUPPRESSED_COUNT,
+            SELECT a.REQUEST_ID,CLIENT_NAME,ADDED_BY,WEEK,RLTP_FILE_COUNT,REQUEST_STATUS,REQUEST_DESC,REQUEST_START_TIME,
+                   execution_time EXECUTION_TIME,request_id_supp_count,POSTED_UNSUB_HARDS_SUPP_COUNT,OFFERID_UNSUB_SUPP_COUNT OFFERID_SUPPRESSED_COUNT,
                    SUPPRESSION_COUNT CLIENT_SUPPRESSION_COUNT,MAX_TOUCH_COUNT,LAST_WK_DEL_INSERT_CNT,LAST_WK_UNSUB_INSERT_CNT,
                    UNIQUE_DELIVERED_COUNT,TotalDeliveredCount,NEW_RECORD_CNT,NEW_ADDED_IP_CNT,TOTAL_RUNNING_UNIQ_CNT,
-                   PREV_WEEK_PB_TABLE,ActualLogsCount,ActualLogsTRTMatchCount,ActualLogsPbReportedCount,Added_By 
+                   PREV_WEEK_PB_TABLE 
             FROM {requests_table} a 
             JOIN {clients_table} b ON a.CLIENT_ID=b.CLIENT_ID  
             JOIN {qa_table} c ON a.REQUEST_ID=c.REQUEST_ID 
@@ -1175,11 +1176,14 @@ def download_request_stats(request_id):
         SELECT x.* FROM cte CROSS JOIN LATERAL (VALUES
             ( 'RequestID', REQUEST_ID::text ),
             ( 'ClientName', CLIENT_NAME::text ),
+            ( 'User', ADDED_BY::text ),
+            ( 'Week', WEEK::text ),
             ( 'TRTFileCount', RLTP_FILE_COUNT::text ),
             ( 'RequestStatus', REQUEST_STATUS::text ),
             ( 'RequestDescription', REQUEST_DESC::text ),
             ( 'StartTime', REQUEST_START_TIME::text ),
             ( 'TotalExecutionTime', EXECUTION_TIME::text ),
+            ( 'RequestIdSuppressionCount', request_id_supp_count::text ),
             ( 'UnsubHardsSuppressionCount', POSTED_UNSUB_HARDS_SUPP_COUNT::text ),
             ( 'OfferIDSuppressionCount', OFFERID_SUPPRESSED_COUNT::text ),
             ( 'ClientSuppressionCount', CLIENT_SUPPRESSION_COUNT::text ),
@@ -1191,9 +1195,8 @@ def download_request_stats(request_id):
             ( 'NewlyAddedRecordsCount', NEW_RECORD_CNT::text ),
             ( 'NewlyAddedIPCount', NEW_ADDED_IP_CNT::text ),
             ( 'TotalRunningUniqueCount', TOTAL_RUNNING_UNIQ_CNT::text ),
-            ( 'DeliveredTable', PREV_WEEK_PB_TABLE::text ),
-            ( 'AddedBy', Added_By::text)
-        ) x(Header, Value)
+            ( 'DeliveredTable', PREV_WEEK_PB_TABLE::text )
+                    ) x(Header, Value)
         """
 
         cursor.execute(main_query, (request_id,))
@@ -1275,11 +1278,11 @@ def get_request_stats(request_id):
         # First query - Main request details
         main_query = f"""
         WITH cte AS (
-            SELECT a.REQUEST_ID,CLIENT_NAME,RLTP_FILE_COUNT,REQUEST_STATUS,REQUEST_DESC,REQUEST_START_TIME,
-                   execution_time EXECUTION_TIME,POSTED_UNSUB_HARDS_SUPP_COUNT,OFFERID_UNSUB_SUPP_COUNT OFFERID_SUPPRESSED_COUNT,
+            SELECT a.REQUEST_ID,CLIENT_NAME,ADDED_BY,WEEK,RLTP_FILE_COUNT,REQUEST_STATUS,REQUEST_DESC,REQUEST_START_TIME,
+                   execution_time EXECUTION_TIME,request_id_supp_count,POSTED_UNSUB_HARDS_SUPP_COUNT,OFFERID_UNSUB_SUPP_COUNT OFFERID_SUPPRESSED_COUNT,
                    SUPPRESSION_COUNT CLIENT_SUPPRESSION_COUNT,MAX_TOUCH_COUNT,LAST_WK_DEL_INSERT_CNT,LAST_WK_UNSUB_INSERT_CNT,
                    UNIQUE_DELIVERED_COUNT,TotalDeliveredCount,NEW_RECORD_CNT,NEW_ADDED_IP_CNT,TOTAL_RUNNING_UNIQ_CNT,
-                   PREV_WEEK_PB_TABLE,ActualLogsCount,ActualLogsTRTMatchCount,ActualLogsPbReportedCount,Added_By 
+                   PREV_WEEK_PB_TABLE 
             FROM {requests_table} a 
             JOIN {clients_table} b ON a.CLIENT_ID=b.CLIENT_ID  
             JOIN {qa_table} c ON a.REQUEST_ID=c.REQUEST_ID 
@@ -1288,11 +1291,14 @@ def get_request_stats(request_id):
         SELECT x.* FROM cte CROSS JOIN LATERAL (VALUES
             ( 'RequestID', REQUEST_ID::text ),
             ( 'ClientName', CLIENT_NAME::text ),
+            ( 'User', ADDED_BY::text ),
+            ( 'Week', WEEK::text ),
             ( 'TRTFileCount', RLTP_FILE_COUNT::text ),
             ( 'RequestStatus', REQUEST_STATUS::text ),
             ( 'RequestDescription', REQUEST_DESC::text ),
             ( 'StartTime', REQUEST_START_TIME::text ),
             ( 'TotalExecutionTime', EXECUTION_TIME::text ),
+            ( 'RequestIdSuppressionCount', request_id_supp_count::text ),
             ( 'UnsubHardsSuppressionCount', POSTED_UNSUB_HARDS_SUPP_COUNT::text ),
             ( 'OfferIDSuppressionCount', OFFERID_SUPPRESSED_COUNT::text ),
             ( 'ClientSuppressionCount', CLIENT_SUPPRESSION_COUNT::text ),
@@ -1304,9 +1310,8 @@ def get_request_stats(request_id):
             ( 'NewlyAddedRecordsCount', NEW_RECORD_CNT::text ),
             ( 'NewlyAddedIPCount', NEW_ADDED_IP_CNT::text ),
             ( 'TotalRunningUniqueCount', TOTAL_RUNNING_UNIQ_CNT::text ),
-            ( 'DeliveredTable', PREV_WEEK_PB_TABLE::text ),
-            ( 'AddedBy', Added_By::text)
-        ) x(Header, Value)
+            ( 'DeliveredTable', PREV_WEEK_PB_TABLE::text )
+                    ) x(Header, Value)
         """
 
         cursor.execute(main_query, (request_id,))
@@ -1484,7 +1489,6 @@ def kill_request(request_id):
             conn.close()
 
             import subprocess
-            import os
 
             # Use the correct path based on production environment structure
             script_path = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/cancelRequest.sh"
@@ -1644,6 +1648,199 @@ def get_status_counts():
 
     except Exception as e:
         logger.error(f"❌ Error fetching status counts: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/requests/<int:request_id>/client-name', methods=['GET'])
+def get_client_name(request_id):
+    """Get client name for a specific request"""
+    logger.info(f"🏢 Client name endpoint called for request ID: {request_id}")
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Query based on config.properties CLIENT_NAME logic
+        query = """
+        SELECT UPPER(client_name) 
+        FROM APT_CUSTOM_CLIENT_INFO_TABLE_DND a 
+        JOIN APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND b ON a.client_id = b.client_id 
+        WHERE request_id = %s
+        """
+
+        cursor.execute(query, (request_id,))
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if result:
+            return jsonify({
+                'success': True,
+                'clientName': result[0]
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching client name: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/requests/<int:request_id>/week', methods=['GET'])
+def get_week(request_id):
+    """Get week for a specific request"""
+    logger.info(f"📅 Week endpoint called for request ID: {request_id}")
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Query based on config.properties WEEK logic
+        query = """
+        SELECT UPPER(week) 
+        FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND 
+        WHERE request_id = %s
+        """
+
+        cursor.execute(query, (request_id,))
+        result = cursor.fetchone()
+
+        cursor.close()
+        conn.close()
+
+        if result:
+            return jsonify({
+                'success': True,
+                'week': result[0]
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching week: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/tables/<table_name>/columns', methods=['GET'])
+def get_table_columns(table_name):
+    """Get columns for a specific table"""
+    logger.info(f"📋 Table columns endpoint called for table: {table_name}")
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Get table columns from information_schema
+        query = """
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = %s 
+        ORDER BY ordinal_position
+        """
+
+        cursor.execute(query, (table_name.lower(),))
+        results = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        if results:
+            columns = [row[0] for row in results]
+            return jsonify({
+                'success': True,
+                'columns': columns
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Table not found or no columns'}), 404
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching table columns: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/requests/<int:request_id>/metrics/download', methods=['POST'])
+def download_metrics(request_id):
+    """Download metrics with custom or standard queries"""
+    logger.info(f"📊 Download metrics endpoint called for request ID: {request_id}")
+
+    try:
+        import pandas as pd
+        from io import BytesIO
+
+        data = request.get_json()
+        queries = data.get('queries', [])
+        metric_type = data.get('metricType', 'standard')
+
+        if not queries:
+            return jsonify({'success': False, 'error': 'No queries provided'}), 400
+
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+        cursor = conn.cursor()
+
+        # Create Excel file with multiple sheets
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for i, query_info in enumerate(queries):
+                query_name = query_info.get('name', f'Query_{i+1}')
+                query_sql = query_info.get('query', '')
+
+                try:
+                    cursor.execute(query_sql)
+                    results = cursor.fetchall()
+
+                    if results:
+                        # Get column names
+                        col_names = [desc[0] for desc in cursor.description]
+
+                        # Create DataFrame
+                        df = pd.DataFrame(results, columns=col_names)
+
+                        # Write to Excel sheet
+                        sheet_name = query_name[:31] if len(query_name) > 31 else query_name  # Excel sheet name limit
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                        logger.info(f"📋 Added sheet '{sheet_name}' with {len(results)} rows")
+                    else:
+                        # Create empty DataFrame for queries with no results
+                        df = pd.DataFrame({'Message': ['No data found for this query']})
+                        sheet_name = f'Empty_{i+1}'
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                except Exception as query_error:
+                    logger.error(f"❌ Error executing query {i+1}: {query_error}")
+                    # Add error sheet
+                    error_df = pd.DataFrame({'Error': [f'Query execution failed: {str(query_error)}']})
+                    error_sheet_name = f'Error_{i+1}'
+                    error_df.to_excel(writer, sheet_name=error_sheet_name, index=False)
+
+        cursor.close()
+        conn.close()
+
+        output.seek(0)
+
+        # Create response
+        response = app.response_class(
+            output.read(),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={
+                'Content-Disposition': f'attachment; filename=Metrics-{request_id}.xlsx'
+            }
+        )
+
+        logger.info(f"✅ Successfully created metrics Excel file for request {request_id}")
+        return response
+
+    except Exception as e:
+        logger.error(f"❌ Error downloading metrics: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==========================================
@@ -1993,7 +2190,6 @@ def get_system_status():
 
     try:
         import psutil
-        import os
 
         # Database connection test
         db_start_time = time.time()
@@ -2134,6 +2330,124 @@ def export_dashboard_reports():
     except Exception as e:
         logger.error(f"❌ Error exporting reports: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/clients/<client_name>/flush-delivery-data', methods=['POST'])
+def flush_client_delivery_data(client_name):
+    """Flush (truncate) total delivery data for a client when week contains W1/W2"""
+    logger.info(f"🗑️ Flush delivery data request for client: {client_name}")
+
+    try:
+        # Get database connection
+        conn = get_db_connection()
+        if not conn:
+            logger.error("❌ Database connection failed for flush operation")
+            return jsonify({
+                'success': False,
+                'error': 'Database connection failed'
+            }), 500
+
+        cursor = conn.cursor()
+        clients_table = config.get_table_name('clients')
+
+        logger.info(f"🔍 Looking up client '{client_name}' in table: {clients_table}")
+
+        # First, let's check what clients exist (for debugging)
+        debug_query = f"SELECT client_id, client_name, total_delivered_table FROM {clients_table} LIMIT 10"
+        cursor.execute(debug_query)
+        all_clients = cursor.fetchall()
+        logger.info(f"📋 Available clients (first 10): {[client[1] for client in all_clients]}")
+
+        # Get client information including total_delivered_table
+        query = f"""
+        SELECT client_id, client_name, total_delivered_table 
+        FROM {clients_table} 
+        WHERE LOWER(client_name) = LOWER(%s)
+        """
+
+        logger.info(f"🔍 Executing query: {query} with parameter: {client_name}")
+        cursor.execute(query, (client_name,))
+        result = cursor.fetchone()
+
+        if not result:
+            cursor.close()
+            conn.close()
+            logger.error(f"❌ Client '{client_name}' not found in database")
+            logger.info(f"💡 Available clients: {[client[1] for client in all_clients]}")
+            return jsonify({
+                'success': False,
+                'error': f'Client "{client_name}" not found. Available clients: {[client[1] for client in all_clients[:5]]}'
+            }), 404
+
+        client_id, client_name_db, total_delivered_table = result
+        logger.info(f"✅ Found client: ID={client_id}, Name='{client_name_db}', Table='{total_delivered_table}'")
+
+        if not total_delivered_table:
+            cursor.close()
+            conn.close()
+            logger.error(f"❌ No total delivered table configured for client '{client_name}'")
+            return jsonify({
+                'success': False,
+                'error': f'No total delivered table configured for client "{client_name}"'
+            }), 400
+
+        # Log the operation
+        logger.info(f"📊 Client ID: {client_id}, Table to flush: {total_delivered_table}")
+
+        # Check if table exists before truncating
+        check_table_query = """
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = LOWER(%s)
+        )
+        """
+        cursor.execute(check_table_query, (total_delivered_table,))
+        table_exists = cursor.fetchone()[0]
+
+        if not table_exists:
+            cursor.close()
+            conn.close()
+            logger.error(f"❌ Total delivered table '{total_delivered_table}' does not exist")
+            return jsonify({
+                'success': False,
+                'error': f'Total delivered table "{total_delivered_table}" does not exist'
+            }), 400
+
+        # Get row count before truncation
+        count_query = f"SELECT COUNT(*) FROM {total_delivered_table}"
+        cursor.execute(count_query)
+        row_count_before = cursor.fetchone()[0]
+        logger.info(f"📊 Records to flush: {row_count_before}")
+
+        # Truncate the table
+        truncate_query = f"TRUNCATE TABLE {total_delivered_table}"
+        logger.info(f"🗑️ Executing: {truncate_query}")
+        cursor.execute(truncate_query)
+
+        # Commit the transaction
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        logger.info(f"✅ Successfully flushed {row_count_before} records from {total_delivered_table}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Successfully flushed total delivery data for client "{client_name}"',
+            'details': {
+                'client_id': client_id,
+                'table_name': total_delivered_table,
+                'records_flushed': row_count_before
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error flushing delivery data: {e}")
+        logger.error(f"❌ Error details: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Failed to flush delivery data: {str(e)}'
+        }), 500
 
 if __name__ == "__main__":
     print("Starting CAM API Server")

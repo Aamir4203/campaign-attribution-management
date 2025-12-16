@@ -21,7 +21,15 @@ def execute_query(query_and_request_id):
     try:
         # Track this worker process
         if request_id:
-            subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {request_id} "DELETE_PARTITION_WORKER"'], check=False)
+            track_command = f'''
+            track_process() {{
+                source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+                source $TRACKING_HELPER
+                append_process_id $1 "DELETE_PARTITION_WORKER"
+            }}
+            track_process {request_id}
+            '''
+            subprocess.run(['bash', '-c', track_command], check=False)
 
         conn = psycopg2.connect(
             host=DB_HOST,
@@ -102,8 +110,16 @@ if __name__ == '__main__':
         delete_query = sys.argv[1]  
         request_id = sys.argv[2]
 
-        # Track main process
-        subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {request_id} "DELETE_PARTITION_MAIN"'], check=False)
+        # Track main process - create bash function to handle positional parameters
+        track_command = f'''
+        track_process() {{
+            source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+            source $TRACKING_HELPER
+            append_process_id $1 "DELETE_PARTITION_MAIN"
+        }}
+        track_process {request_id}
+        '''
+        subprocess.run(['bash', '-c', track_command], check=False)
 
         table_name = parse_query_and_get_table(delete_query)
         if not table_name:

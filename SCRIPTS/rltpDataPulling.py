@@ -36,7 +36,15 @@ def main(args):
     client, trt_tb, qr, presto_config, pg_config,sup_l,n,deciles_,indx_val,indx_creation,client_id,Audit_TRT_limit=args
     try:
         # Track this worker process
-        subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {sys.argv[1]} "RLTP_WORKER_{client}"'], check=False)
+        track_command = f'''
+        track_process() {{
+            source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+            source $TRACKING_HELPER
+            append_process_id $1 "RLTP_WORKER_{client}"
+        }}
+        track_process {sys.argv[1]}
+        '''
+        subprocess.run(['bash', '-c', track_command], check=False)
 
         if event.is_set():
            return
@@ -155,7 +163,15 @@ if __name__ == "__main__":
         request_id=sys.argv[1]
 
         # Track main process
-        subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {request_id} "RLTP_MAIN"'], check=False)
+        track_command = f'''
+        track_process() {{
+            source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+            source $TRACKING_HELPER
+            append_process_id $1 "RLTP_MAIN"
+        }}
+        track_process {request_id}
+        '''
+        subprocess.run(['bash', '-c', track_command], check=False)
 
         path='/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/'+request_id
         lpath=path+"/LOGS"

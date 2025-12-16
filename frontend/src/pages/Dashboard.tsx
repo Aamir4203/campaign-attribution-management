@@ -65,10 +65,17 @@ const Dashboard: React.FC = () => {
   const [customToDate, setCustomToDate] = useState('');
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
   const [isUserActivityExpanded, setIsUserActivityExpanded] = useState(false);
+  const [userActivityViewMode, setUserActivityViewMode] = useState<'list' | 'chart'>('list');
+  const [chartLoading, setChartLoading] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
       setError(null);
+
+      // If we're in chart view, show loading for data processing
+      if (userActivityViewMode === 'chart') {
+        setChartLoading(true);
+      }
 
       // Calculate date range based on filter
       const getDateRange = () => {
@@ -168,6 +175,10 @@ const Dashboard: React.FC = () => {
       setAlerts([]);
     } finally {
       setLoading(false);
+      // Complete chart loading if it was active
+      if (chartLoading) {
+        setTimeout(() => setChartLoading(false), 300); // Small delay for smooth transition
+      }
     }
   };
 
@@ -192,11 +203,11 @@ const Dashboard: React.FC = () => {
 
   const getDateFilterLabel = (filter: string): string => {
     switch (filter) {
-      case 'wtd': return 'Week to Date';
-      case 'mtd': return 'Month to Date';
-      case 'ytd': return 'Year to Date';
-      case 'custom': return 'Custom Range';
-      default: return 'Week to Date';
+      case 'wtd': return 'WeekToDate';
+      case 'mtd': return 'MonthToDate';
+      case 'ytd': return 'YearToDate';
+      case 'custom': return 'Custom';
+      default: return 'WeekToDate';
     }
   };
 
@@ -207,6 +218,23 @@ const Dashboard: React.FC = () => {
     } else {
       setShowCustomDatePicker(false);
     }
+  };
+
+  // Handle view mode change with loading simulation
+  const handleViewModeChange = async (mode: 'list' | 'chart') => {
+    if (mode === userActivityViewMode) return;
+
+    setChartLoading(true);
+
+    // Simulate realistic processing time for data visualization
+    // Chart generation involves: data processing, sorting, calculations, rendering
+    const processingTime = mode === 'chart' ? 1200 : 500; // Chart takes longer to generate
+
+    // Add some realistic delay to show the loading experience
+    await new Promise(resolve => setTimeout(resolve, processingTime));
+
+    setUserActivityViewMode(mode);
+    setChartLoading(false);
   };
 
   // Auto-refresh when date filter changes
@@ -228,13 +256,12 @@ const Dashboard: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6"
-         style={{ paddingLeft: '100px' }}>
+    <div className="min-h-screen bg-gray-100 px-4 py-6">
       {/* Header */}
       <div className="mb-6">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-gray-600 font-bold">Real-time Performance Monitoring & Insights</h2>
+            <h2 className="text-gray-600 font-bold">Real-Time Request Insights</h2>
           </div>
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
@@ -243,9 +270,9 @@ const Dashboard: React.FC = () => {
                 onChange={(e) => handleDateFilterChange(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               >
-                <option value="wtd">WTD</option>
-                <option value="mtd">MTD</option>
-                <option value="ytd">YTD</option>
+                <option value="wtd">WeekToDate</option>
+                <option value="mtd">MonthToDate</option>
+                <option value="ytd">YearToDate</option>
                 <option value="custom">Custom</option>
               </select>
 
@@ -270,18 +297,15 @@ const Dashboard: React.FC = () => {
             <button
               onClick={fetchDashboardData}
               disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              title={loading ? 'Refreshing...' : 'Refresh'}
             >
-              {loading ? 'Refreshing...' : '🔄 Refresh'}
+              ↻
             </button>
             <div className="text-sm text-gray-500">
               Last updated: {lastUpdated.toLocaleTimeString()}
             </div>
           </div>
-        </div>
-
-        <div className="text-sm text-blue-600 bg-blue-50 px-3 py-1 rounded-lg mt-2">
-          📅 Showing data for: {getDateFilterLabel(dateFilter)}
         </div>
       </div>
 
@@ -348,105 +372,288 @@ const Dashboard: React.FC = () => {
           )}
         </div>
 
-        {/* Quick Actions */}
+        {/* Health Check */}
         <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">🎯 Quick Actions</h3>
-          <div className="space-y-3">
-            <button
-              onClick={() => window.location.href = '/add-request'}
-              className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-            >
-              ➕ Add New Request
-            </button>
-            <button
-              onClick={() => window.location.href = '/requests'}
-              className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-            >
-              📋 View Request Monitor
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  const response = await api.post('/api/dashboard/health-check');
-                  if (response.data.success) {
-                    const results = response.data.health_check;
-                    let message = '✅ System Health Check Complete!\n\n';
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">🔍 Health Check</h3>
+          <button
+            onClick={async () => {
+              try {
+                const response = await api.post('/api/dashboard/health-check');
+                if (response.data.success) {
+                  const results = response.data.health_check;
+                  let message = '✅ System Health Check Complete!\n\n';
 
-                    if (results.database?.status === 'healthy') {
-                      message += `• Database: ✅ Connected (${results.database.version?.split(' ')[0] || 'PostgreSQL'})\n`;
-                    } else {
-                      message += `• Database: ❌ ${results.database?.error || 'Failed'}\n`;
-                    }
-
-                    message += `• API: ✅ ${results.api_endpoints?.status || 'Healthy'}\n`;
-                    message += `• Queue: ✅ ${results.processing_queue?.status || 'Operational'} (${results.processing_queue?.total_requests || 0} total requests)\n`;
-                    message += `• Frontend: ✅ Working`;
-
-                    alert(message);
+                  if (results.database?.status === 'healthy') {
+                    message += `• Database: ✅ Connected (${results.database.version?.split(' ')[0] || 'PostgreSQL'})\n`;
                   } else {
-                    alert('❌ Health Check Failed!\n\nSystem diagnostics returned errors.');
+                    message += `• Database: ❌ ${results.database?.error || 'Failed'}\n`;
                   }
-                } catch (err) {
-                  alert('❌ Health Check Failed!\n\nUnable to complete system diagnostics.\n\nThis may indicate backend connectivity issues.');
+
+                  message += `• API: ✅ ${results.api_endpoints?.status || 'Healthy'}\n`;
+                  message += `• Queue: ✅ ${results.processing_queue?.status || 'Operational'} (${results.processing_queue?.total_requests || 0} total requests)\n`;
+                  message += `• Frontend: ✅ Working`;
+
+                  alert(message);
+                } else {
+                  alert('❌ Health Check Failed!\n\nSystem diagnostics returned errors.');
                 }
-              }}
-              className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-            >
-              🔍 Run Health Check
-            </button>
-          </div>
+              } catch (err) {
+                alert('❌ Health Check Failed!\n\nUnable to complete system diagnostics.\n\nThis may indicate backend connectivity issues.');
+              }
+            }}
+            className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+          >
+            🔍 Run Health Check
+          </button>
         </div>
       </div>
 
       {/* User Activity Section - Collapsible */}
-      <div className="grid grid-cols-1 gap-6 mb-6">
-        <div className="bg-white rounded-lg shadow">
+      <div className="grid grid-cols-1 gap-4 mb-6">
+        <div className="bg-white rounded shadow">
           <div
-            className="p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+            className="p-3 cursor-pointer hover:bg-gray-50 transition-colors"
             onClick={() => setIsUserActivityExpanded(!isUserActivityExpanded)}
           >
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+              <h3 className="text-base font-medium text-gray-900 flex items-center">
                 👥 User Activity
-                <span className="ml-2 text-sm text-gray-500">({users.length} users)</span>
+                <span className="ml-2 text-xs text-gray-500">({users.length} users)</span>
               </h3>
-              <div className="flex items-center space-x-3">
-                <span className="text-sm text-gray-500">{getDateFilterLabel(dateFilter)}</span>
-                <span className="text-gray-400 text-xl transition-transform duration-200" style={{
-                  transform: isUserActivityExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleViewModeChange('chart');
+                  }}
+                  disabled={chartLoading}
+                  className={`p-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative ${
+                    userActivityViewMode === 'chart'
+                      ? 'text-blue-600'
+                      : 'text-gray-400 hover:text-blue-600'
+                  }`}
+                  title="Bar Graph View"
+                >
+                  {chartLoading && userActivityViewMode !== 'chart' ? (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-2 h-2 border border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  ) : null}
+                  <span className={chartLoading && userActivityViewMode !== 'chart' ? 'opacity-30' : ''}>📈</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleViewModeChange('list');
+                  }}
+                  disabled={chartLoading}
+                  className={`p-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed relative ${
+                    userActivityViewMode === 'list'
+                      ? 'text-green-600'
+                      : 'text-gray-400 hover:text-green-600'
+                  }`}
+                  title="List View"
+                >
+                  {chartLoading && userActivityViewMode !== 'list' ? (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-2 h-2 border border-green-400 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  ) : null}
+                  <span className={chartLoading && userActivityViewMode !== 'list' ? 'opacity-30' : ''}>📋</span>
+                </button>
+                <span className="text-xs text-gray-500">{getDateFilterLabel(dateFilter)}</span>
+                <span className="text-gray-400 text-base transition-transform duration-200" style={{
+                  transform: isUserActivityExpanded ? 'rotate(90deg)' : 'rotate(0deg)'
                 }}>
-                  ▼
+                  ›
                 </span>
               </div>
             </div>
           </div>
 
           {isUserActivityExpanded && (
-            <div className="px-6 pb-6 border-t border-gray-100">
-              {users.length > 0 ? (
-                <div className="space-y-3 max-h-80 overflow-y-auto mt-4">
-                  {users.map((user, index) => (
-                    <div key={index} className="flex justify-between items-center py-3 border-b border-gray-100 last:border-b-0">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{user.username}</p>
-                        <p className="text-sm text-gray-500">
-                          {user.total_requests} requests • {user.success_rate}% success
-                        </p>
-                      </div>
-                      <div className="text-right ml-4">
-                        <p className="text-sm text-green-600 font-medium">{user.completed_requests} completed</p>
-                        <p className="text-xs text-gray-500">{formatExecutionTime(user.avg_execution_hours)} avg</p>
-                      </div>
+            <div className="px-3 pb-3 border-t border-gray-100">
+              {chartLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                  <div className="relative">
+                    {/* Outer spinning ring */}
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-100 border-t-blue-600"></div>
+                    {/* Inner pulsing dot */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-4 h-4 bg-blue-600 rounded-full animate-pulse"></div>
                     </div>
-                  ))}
-                  {users.length > 8 && (
-                    <div className="text-center text-xs text-gray-400 pt-2">
-                      Scroll to see all {users.length} users
+                    {/* Chart icon overlay */}
+                    <div className="absolute -top-1 -right-1">
+                      <span className="text-xs animate-bounce">📊</span>
+                    </div>
+                  </div>
+                  <div className="text-center space-y-2">
+                    <p className="text-base font-medium text-gray-700 animate-pulse">
+                      {userActivityViewMode === 'chart' ? '📊 Generating Multi-Metric Chart...' : '📋 Loading List View...'}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      {userActivityViewMode === 'chart'
+                        ? 'Creating vertical bars for requests, execution time, and success rates'
+                        : 'Organizing user data for list display'
+                      }
+                    </p>
+                    <div className="flex justify-center space-x-1 mt-3">
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                  </div>
+                </div>
+              ) : users.length > 0 ? (
+                <>
+                  {userActivityViewMode === 'list' ? (
+                    <div className="space-y-2 max-h-60 overflow-y-auto mt-2">
+                      {users.map((user, index) => (
+                        <div key={index} className="grid grid-cols-4 gap-3 items-center py-3 px-3 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 truncate">{user.username}</p>
+                            <p className="text-xs text-gray-600 truncate">
+                              {formatNumber(user.total_requests)} total requests
+                            </p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-bold text-green-600">{formatNumber(user.completed_requests)}</p>
+                            <p className="text-xs text-gray-500">completed</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-bold text-blue-600">{user.success_rate.toFixed(1)}%</p>
+                            <p className="text-xs text-gray-500">success rate</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-purple-600">{formatExecutionTime(user.avg_execution_hours)}</p>
+                            <p className="text-xs text-gray-500">avg time</p>
+                          </div>
+                        </div>
+                      ))}
+                      {users.length > 6 && (
+                        <div className="text-center text-xs text-gray-400 pt-1">
+                          Scroll to see all {users.length} users
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-2 space-y-3 max-h-60 overflow-y-auto">
+                      <div className="text-center mb-4">
+                        <div className="text-sm font-medium text-gray-700 mb-1">
+                          📊 Multi-Metric User Analytics
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Requests • Execution Time • Success Rate
+                        </div>
+                      </div>
+                      <div className="flex justify-start overflow-x-auto pb-2" style={{ minHeight: '180px' }}>
+                        <div className="flex items-end space-x-3 px-2">
+                          {users
+                            .sort((a, b) => b.total_requests - a.total_requests)
+                            .slice(0, 6)
+                            .map((user, index) => {
+                              const maxRequests = Math.max(...users.map(u => u.total_requests));
+                              const maxExecTime = Math.max(...users.map(u => u.avg_execution_hours));
+
+                              // Normalize heights (max 120px)
+                              const requestsHeight = Math.max(20, (user.total_requests / maxRequests) * 120);
+                              const execTimeHeight = Math.max(20, (user.avg_execution_hours / maxExecTime) * 120);
+                              const baseHeight = 40; // Minimum height for visibility
+
+                              return (
+                                <div key={index} className="flex flex-col items-center space-y-2 min-w-16 group hover:bg-gray-50 p-1 rounded transition-colors">
+                                  {/* Success Rate Badge on Top */}
+                                  <div className="text-xs font-medium text-white bg-green-500 px-2 py-1 rounded-full mb-1 group-hover:bg-green-600 transition-colors shadow-sm">
+                                    {user.success_rate}%
+                                  </div>
+
+                                  {/* Vertical Bars Container */}
+                                  <div className="flex items-end space-x-1 h-32">
+                                    {/* Requests Bar */}
+                                    <div className="flex flex-col items-center">
+                                      <div
+                                        className="w-4 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-sm transition-all duration-700 relative hover:from-blue-700 hover:to-blue-500 shadow-sm overflow-hidden"
+                                        style={{
+                                          height: `${Math.max(baseHeight, requestsHeight)}px`,
+                                          minHeight: '40px'
+                                        }}
+                                      >
+                                        {/* Completed requests overlay */}
+                                        <div
+                                          className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-green-500 to-green-400 transition-all duration-700"
+                                          style={{
+                                            height: `${(user.completed_requests / user.total_requests) * 100}%`
+                                          }}
+                                        ></div>
+
+                                        <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-blue-700 bg-white px-1 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                          {user.completed_requests}/{user.total_requests}
+                                        </div>
+                                        {/* Simple value on bar */}
+                                        <div className="absolute top-1 left-1/2 transform -translate-x-1/2 text-xs font-medium text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                          {user.total_requests}
+                                        </div>
+                                      </div>
+                                      <span className="text-xs text-gray-500 mt-1 group-hover:text-blue-600 transition-colors font-medium">Req</span>
+                                    </div>
+
+                                    {/* Execution Time Bar */}
+                                    <div className="flex flex-col items-center">
+                                      <div
+                                        className="w-4 bg-gradient-to-t from-purple-600 to-purple-400 rounded-t-sm transition-all duration-700 relative hover:from-purple-700 hover:to-purple-500 shadow-sm"
+                                        style={{
+                                          height: `${Math.max(baseHeight, execTimeHeight)}px`,
+                                          minHeight: '40px'
+                                        }}
+                                      >
+                                        <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-purple-700 bg-white px-1 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                          {formatExecutionTime(user.avg_execution_hours)}
+                                        </div>
+                                        {/* Simple value on bar */}
+                                        <div className="absolute top-1 left-1/2 transform -translate-x-1/2 text-xs font-medium text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                          {user.avg_execution_hours < 1 ? `${Math.round(user.avg_execution_hours * 60)}m` : `${user.avg_execution_hours.toFixed(1)}h`}
+                                        </div>
+                                      </div>
+                                      <span className="text-xs text-gray-500 mt-1 group-hover:text-purple-600 transition-colors font-medium">Time</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Username at bottom */}
+                                  <div className="text-xs font-medium text-gray-700 text-center w-16 truncate group-hover:text-gray-900 transition-colors" title={user.username}>
+                                    {user.username.substring(0, 8)}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+
+                      {/* Legend */}
+                      <div className="flex justify-center space-x-4 mt-3 pt-2 border-t border-gray-100">
+                        <div className="flex items-center space-x-1">
+                          <div className="w-3 h-3 bg-gradient-to-t from-blue-600 to-blue-400 rounded"></div>
+                          <span className="text-xs text-gray-600">Requests</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <div className="w-3 h-3 bg-gradient-to-t from-purple-600 to-purple-400 rounded"></div>
+                          <span className="text-xs text-gray-600">Avg Time</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                          <span className="text-xs text-gray-600">Success %</span>
+                        </div>
+                      </div>
+
+                      {users.length > 6 && (
+                        <div className="text-center text-xs text-gray-400 pt-1">
+                          Showing top 6 users by total requests
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </>
               ) : (
-                <p className="text-gray-500 mt-4">No user activity data available for the selected date range</p>
+                <p className="text-gray-500 text-sm mt-2">No user activity data available</p>
               )}
             </div>
           )}
@@ -454,7 +661,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Footer */}
-      <div className="mt-6 text-center text-sm text-gray-500">
+      <div className="mt-4 text-center text-xs text-gray-500">
         <p>
           🔄 Last updated: {lastUpdated.toLocaleTimeString()} •
           {formatNumber(metrics.total_requests)} total requests

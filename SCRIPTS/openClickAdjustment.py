@@ -61,7 +61,15 @@ if __name__=="__main__":
     request_id=sys.argv[1]
 
     # Track this process
-    subprocess.run(['bash', '-c', f'source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/config.properties && source $TRACKING_HELPER && append_process_id {request_id} "OPEN_CLICK_ADJUSTMENT"'], check=False)
+    track_command = f'''
+    track_process() {{
+        source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+        source $TRACKING_HELPER
+        append_process_id $1 "OPEN_CLICK_ADJUSTMENT"
+    }}
+    track_process {request_id}
+    '''
+    subprocess.run(['bash', '-c', track_command], check=False)
 
     engine=create_engine('postgresql+psycopg2://datateam:@zds-prod-pgdb01-01.bo3.e-dialog.com/apt_tool_db')
     tb_info = pd.read_sql("SELECT a.request_id,a.week,a.query,a.decile_wise_report_path,b.client_name,a.SUPP_PATH FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND a,apt_custom_client_info_table_dnd b  WHERE request_id="+request_id+" and a.client_id=b.client_id", con=engine)

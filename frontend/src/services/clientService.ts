@@ -100,6 +100,20 @@ export class ClientService {
       throw new Error('Failed to add new client. Please try again.');
     }
   }
+
+  // Flush total delivery data for a client (W1/W2 week logic)
+  static async flushDeliveryData(clientName: string): Promise<any> {
+    try {
+      console.log('🗑️ Flushing delivery data for client:', clientName);
+      const response = await api.post(`/api/clients/${encodeURIComponent(clientName)}/flush-delivery-data`);
+
+      console.log('✅ Flush response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Flush delivery data error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ClientService;

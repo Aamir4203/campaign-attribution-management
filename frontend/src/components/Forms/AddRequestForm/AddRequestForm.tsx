@@ -5,6 +5,9 @@ import { addRequestSchema, AddRequestFormData } from '../../../utils/validation'
 import ClientService from '../../../services/clientService';
 import api from '../../../services/api';
 import { useAuth } from '../../Auth';
+import FlushDeliveryDataModal from '../../Modal/FlushDeliveryDataModal';
+import SuccessModal from '../../Modal/SuccessModal';
+import ErrorModal from '../../Modal/ErrorModal';
 
 // Simple AlertModal component
 const AlertModal: React.FC<{
@@ -69,6 +72,18 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const [backendConnected, setBackendConnected] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastSubmittedRequestId, setLastSubmittedRequestId] = useState<string | number | null>(null);
+
+  // Flush delivery data modal states
+  const [showFlushModal, setShowFlushModal] = useState(false);
+  const [flushLoading, setFlushLoading] = useState(false);
+  const [weekTriggerTimeout, setWeekTriggerTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [weekTriggerPending, setWeekTriggerPending] = useState(false);
+
+  // Success and Error modal states
+  const [showFlushSuccessModal, setShowFlushSuccessModal] = useState(false);
+  const [flushSuccessMessage, setFlushSuccessMessage] = useState('');
+  const [showFlushErrorModal, setShowFlushErrorModal] = useState(false);
+  const [flushErrorMessage, setFlushErrorMessage] = useState('');
 
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set([1])); // Section 1 open by default
@@ -137,6 +152,66 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const addTimeStamp = watch('addTimeStamp');
   const endDate = watch('endDate');
   const residualStart = watch('residualStart');
+  const weekValue = watch('week');
+  const clientName = watch('clientName');
+
+  // W1/W2 Detection Logic with Debouncing
+  useEffect(() => {
+    // Clear any existing timeout and reset pending state
+    if (weekTriggerTimeout) {
+      clearTimeout(weekTriggerTimeout);
+      setWeekTriggerPending(false);
+    }
+
+    if (weekValue && clientName) {
+      // Improved regex to detect W1 or W2 more precisely
+      // This will match w1, w2 but NOT w11, w12, w21, etc.
+      // Handles separators like underscores, spaces, etc.
+      const w1w2Regex = /(?:^|[^a-zA-Z0-9])w[12](?![0-9])/i;
+
+      if (w1w2Regex.test(weekValue)) {
+        console.log('🔍 W1/W2 pattern detected, waiting 3 seconds...', weekValue);
+        setWeekTriggerPending(true);
+
+        // Set a 3-second delay before showing modal
+        const timeout = setTimeout(() => {
+          // Double-check the pattern still matches after 3 seconds
+          if (weekValue && w1w2Regex.test(weekValue) && clientName) {
+            console.log('✅ Triggering flush modal after 3-second delay');
+            setWeekTriggerPending(false);
+            setShowFlushModal(true);
+          } else {
+            setWeekTriggerPending(false);
+          }
+        }, 3000);
+
+        setWeekTriggerTimeout(timeout);
+      } else {
+        setWeekTriggerPending(false);
+        console.log('📝 Week value changed but no W1/W2 pattern:', weekValue);
+      }
+    } else {
+      setWeekTriggerPending(false);
+    }
+
+    // Cleanup function
+    return () => {
+      if (weekTriggerTimeout) {
+        clearTimeout(weekTriggerTimeout);
+        setWeekTriggerPending(false);
+      }
+    };
+  }, [weekValue, clientName]);
+
+  // Cleanup timeout on component unmount
+  useEffect(() => {
+    return () => {
+      if (weekTriggerTimeout) {
+        clearTimeout(weekTriggerTimeout);
+        setWeekTriggerPending(false);
+      }
+    };
+  }, []);
 
 
   // Load data on mount
@@ -357,6 +432,52 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     }
   };
 
+  const handleFlushDeliveryData = async () => {
+    try {
+      setFlushLoading(true);
+
+      const response = await ClientService.flushDeliveryData(clientName);
+
+      if (response.success) {
+        console.log('✅ Flush successful:', response);
+        // Show custom success modal
+        const successMessage = `Successfully flushed ${response.details.records_flushed.toLocaleString()} records from ${response.details.table_name}`;
+        setFlushSuccessMessage(successMessage);
+        setShowFlushSuccessModal(true);
+      } else {
+        console.error('❌ Flush failed:', response.error);
+        // Show custom error modal
+        setFlushErrorMessage(response.error || 'Unknown error occurred');
+        setShowFlushErrorModal(true);
+      }
+    } catch (error: any) {
+      console.error('❌ Flush error:', error);
+      const errorMessage = error?.response?.data?.error || error?.message || 'Unknown error occurred';
+      // Show custom error modal
+      setFlushErrorMessage(`Failed to flush delivery data:\n${errorMessage}`);
+      setShowFlushErrorModal(true);
+    } finally {
+      setFlushLoading(false);
+      setShowFlushModal(false);
+      // Clear timeout when modal is closed
+      if (weekTriggerTimeout) {
+        clearTimeout(weekTriggerTimeout);
+        setWeekTriggerTimeout(null);
+      }
+      setWeekTriggerPending(false);
+    }
+  };
+
+  const handleFlushModalClose = () => {
+    setShowFlushModal(false);
+    // Clear timeout when modal is manually closed
+    if (weekTriggerTimeout) {
+      clearTimeout(weekTriggerTimeout);
+      setWeekTriggerTimeout(null);
+    }
+    setWeekTriggerPending(false);
+  };
+
   const onSubmit = async (data: AddRequestFormData) => {
     try {
       setSubmitting(true);
@@ -441,29 +562,24 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   }
 
   return (
-    <div className="w-full bg-white min-h-screen p-6">
+    <div className="w-full bg-white min-h-screen py-3">
       {/* Header with Edit Mode Indicator */}
       {editMode && (
-        <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-center space-x-3">
-            <span className="text-yellow-600 text-xl">✏️</span>
-            <div>
-              <h2 className="text-lg font-semibold text-yellow-800">Edit Request Mode</h2>
-              <p className="text-sm text-yellow-700">
-                Editing Request ID: <span className="font-medium">{initialData?.request_id}</span> -
-                Client: <span className="font-medium">{initialData?.client_name}</span>
-              </p>
+        <div className="mb-3 flex justify-end">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-1">
+            <div className="text-right text-sm text-yellow-800 font-medium">
+              Edit Mode :: {initialData?.request_id} :: {initialData?.client_name}
             </div>
           </div>
         </div>
       )}
 
       {/* Toggle All Sections Icon */}
-      <div className="mb-6 flex justify-end">
+      <div className="mb-4 flex justify-end">
         <button
           type="button"
           onClick={toggleAllSections}
-          className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+          className="p-1 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
           title={expandedSections.size === (editMode ? 8 : 7) ? "Collapse All Sections" : "Expand All Sections"}
         >
           {expandedSections.size === (editMode ? 8 : 7) ? (
@@ -480,39 +596,42 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         </button>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
 
         {/* Section 1: Client Information */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button
-            type="button"
+        <div className="bg-white border border-gray-200 rounded shadow-sm">
+          <div
             onClick={() => toggleSection(1)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <div className="flex items-center space-x-3">
-              <span className="text-blue-600 font-semibold">1.</span>
-              <span className="text-lg">👤</span>
-              <h3 className="text-sm font-semibold text-gray-800">Client Information</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-blue-600 font-semibold text-sm">1.</span>
+              <h3 className="text-sm font-medium text-gray-800">Client Information</h3>
               {watch('clientName') && watch('requestType') && (
-                <span className="text-green-600 text-sm">✓</span>
+                <span className="text-green-600 text-xs">✓</span>
               )}
             </div>
-            <span className="text-gray-400 text-xl">
-              {expandedSections.has(1) ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              type="button"
+              className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span className="text-sm">
+                {expandedSections.has(1) ? '⋯' : '›'}
+              </span>
+            </button>
+          </div>
 
           {expandedSections.has(1) && (
-            <div className="px-6 pb-6 border-t border-gray-100">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                <div>
-                  <label htmlFor="clientName" className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="px-4 pb-4 border-t border-gray-100">
+              <div className="flex gap-3 mt-3 items-start">
+                <div className="flex-shrink-0 w-64">
+                  <label htmlFor="clientName" className="block text-xs font-medium text-gray-700 mb-1">
                     Client Name *
                   </label>
                   <div className="flex gap-2">
                     <select
                       {...register('clientName')}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="w-60 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
                     >
                       <option value="">-- Select Client --</option>
                       {clients.map((client, idx) => (
@@ -524,51 +643,48 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                     <button
                       type="button"
                       onClick={() => setShowAddClient(true)}
-                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                      className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white rounded transition-colors text-sm"
                       title="Add New Client"
                     >
                       +
                     </button>
                   </div>
                   {errors.clientName && (
-                    <p className="mt-1 text-sm text-red-600">{errors.clientName.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.clientName.message}</p>
                   )}
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="flex-shrink-0 w-64">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Request Type *
                   </label>
                   <select
                     {...register('requestType')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    className="w-60 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
                   >
                     <option value="1">Type 1 - Standard Request</option>
                     <option value="2">Type 2 - With Unique Decile Report Path</option>
                   </select>
                   {errors.requestType && (
-                    <p className="mt-1 text-sm text-red-600">{errors.requestType.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.requestType.message}</p>
                   )}
                 </div>
 
-                {/* Type 2 Unique Decile Report Path - Moved to Section 1 for better UX */}
+                {/* Type 2 Unique Decile Report Path - Inline beside Request Type */}
                 {showFilePath && (
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="flex-shrink-0 w-80">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
                       Unique Decile Report Path *
                     </label>
                     <input
                       type="text"
                       {...register('filePath')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                       placeholder="Enter unique decile report file path"
                     />
                     {errors.filePath && (
-                      <p className="mt-1 text-sm text-red-600">{errors.filePath.message}</p>
+                      <p className="mt-1 text-xs text-red-600">{errors.filePath.message}</p>
                     )}
-                    <p className="mt-1 text-xs text-gray-500">
-                      This field is required for Type 2 requests and specifies the unique decile report path.
-                    </p>
                   </div>
                 )}
               </div>
@@ -577,36 +693,39 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         </div>
 
         {/* Section 2: Date Configuration */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button
-            type="button"
+        <div className="bg-white border border-gray-200 rounded shadow-sm">
+          <div
             onClick={() => toggleSection(2)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <div className="flex items-center space-x-3">
-              <span className="text-green-600 font-semibold">2.</span>
-              <span className="text-lg">📅</span>
-              <h3 className="text-sm font-semibold text-gray-800">Campaign Dates</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-green-600 font-semibold text-sm">2.</span>
+              <h3 className="text-sm font-medium text-gray-800">Campaign Dates</h3>
               {watch('startDate') && watch('endDate') && watch('residualStart') && watch('week') && (
-                <span className="text-green-600 text-sm">✓</span>
+                <span className="text-green-600 text-xs">✓</span>
               )}
             </div>
-            <span className="text-gray-400 text-xl">
-              {expandedSections.has(2) ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              type="button"
+              className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span className="text-sm">
+                {expandedSections.has(2) ? '⋯' : '›'}
+              </span>
+            </button>
+          </div>
 
           {expandedSections.has(2) && (
-            <div className="px-6 pb-6 border-t border-gray-100">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+            <div className="px-4 pb-4 border-t border-gray-100">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Start Date *
                   </label>
                   <input
                     type="date"
                     {...register('startDate')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                   {errors.startDate && (
                     <p className="mt-1 text-sm text-red-600">{errors.startDate.message}</p>
@@ -614,45 +733,59 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     End Date *
                   </label>
                   <input
                     type="date"
                     {...register('endDate')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                   {errors.endDate && (
-                    <p className="mt-1 text-sm text-red-600">{errors.endDate.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.endDate.message}</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Residual Date *
                   </label>
                   <input
                     type="date"
                     {...register('residualStart')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                   {errors.residualStart && (
-                    <p className="mt-1 text-sm text-red-600">{errors.residualStart.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.residualStart.message}</p>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Week *
+                    {weekTriggerPending && (
+                      <span className="ml-2 text-xs text-red-600 animate-pulse">
+                        ⏱️ Detecting cycle...
+                      </span>
+                    )}
                   </label>
                   <input
                     type="text"
                     {...register('week')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className={`w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 text-sm ${
+                      weekTriggerPending
+                        ? 'border-red-300 focus:ring-red-500 bg-red-50'
+                        : 'border-gray-300 focus:ring-green-500'
+                    }`}
                     placeholder="e.g., Q4_W8"
                   />
                   {errors.week && (
-                    <p className="mt-1 text-sm text-red-600">{errors.week.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.week.message}</p>
+                  )}
+                  {weekTriggerPending && (
+                    <p className="mt-1 text-xs text-red-600">
+                      W1/W2 detected - checking for new cycle...
+                    </p>
                   )}
                 </div>
               </div>
@@ -661,31 +794,34 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         </div>
 
         {/* Section 3: File Settings & Options */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button
-            type="button"
+        <div className="bg-white border border-gray-200 rounded shadow-sm">
+          <div
             onClick={() => toggleSection(3)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <div className="flex items-center space-x-3">
-              <span className="text-yellow-600 font-semibold">3.</span>
-              <span className="text-lg">📁</span>
-              <h3 className="text-sm font-semibold text-gray-800">File Settings & Options</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-yellow-600 font-semibold text-sm">3.</span>
+              <h3 className="text-sm font-medium text-gray-800">File Settings</h3>
               {watch('fileType') && (
-                <span className="text-green-600 text-sm">✓</span>
+                <span className="text-green-600 text-xs">✓</span>
               )}
             </div>
-            <span className="text-gray-400 text-xl">
-              {expandedSections.has(3) ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              type="button"
+              className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span className="text-sm">
+                {expandedSections.has(3) ? '⋯' : '›'}
+              </span>
+            </button>
+          </div>
 
           {expandedSections.has(3) && (
             <div className="px-6 pb-6 border-t border-gray-100">
-              <div className="space-y-6 mt-4">
+              <div className="space-y-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">File Type *</label>
-                  <div className="flex space-x-8">
+                  <label className="block text-sm font-medium text-gray-700 mb-2 text-center">File Type *</label>
+                  <div className="flex justify-center space-x-8">
                     <label className="flex items-center">
                       <input
                         type="radio"
@@ -706,11 +842,11 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                     </label>
                   </div>
                   {errors.fileType && (
-                    <p className="mt-1 text-sm text-red-600">{errors.fileType.message}</p>
+                    <p className="mt-1 text-sm text-red-600 text-center">{errors.fileType.message}</p>
                   )}
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="flex flex-wrap gap-4 justify-center">
                   <label className="flex items-center">
                     <input
                       type="checkbox"
@@ -741,18 +877,18 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
 
                 {/* TimeStamp Path Input */}
                 {showTimeStampPath && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="w-96">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       TimeStamp File Path *
                     </label>
                     <input
                       type="text"
                       {...register('timeStampPath')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      className="w-80 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                       placeholder="Enter timestamp file path"
                     />
                     {errors.timeStampPath && (
-                      <p className="mt-1 text-sm text-red-600">{errors.timeStampPath.message}</p>
+                      <p className="mt-1 text-xs text-red-600">{errors.timeStampPath.message}</p>
                     )}
                   </div>
                 )}
@@ -762,55 +898,58 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         </div>
 
         {/* Section 4: Report Paths */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button
-            type="button"
+        <div className="bg-white border border-gray-200 rounded shadow-sm">
+          <div
             onClick={() => toggleSection(4)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <div className="flex items-center space-x-3">
-              <span className="text-purple-600 font-semibold">4.</span>
-              <span className="text-lg">📊</span>
-              <h3 className="text-sm font-semibold text-gray-800">Report Paths</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-purple-600 font-semibold text-sm">4.</span>
+              <h3 className="text-sm font-medium text-gray-800">Report Paths</h3>
               {watch('reportpath') && watch('qspath') && (
-                <span className="text-green-600 text-sm">✓</span>
+                <span className="text-green-600 text-xs">✓</span>
               )}
             </div>
-            <span className="text-gray-400 text-xl">
-              {expandedSections.has(4) ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              type="button"
+              className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span className="text-sm">
+                {expandedSections.has(4) ? '⋯' : '›'}
+              </span>
+            </button>
+          </div>
 
           {expandedSections.has(4) && (
-            <div className="px-6 pb-6 border-t border-gray-100">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="px-4 pb-4 border-t border-gray-100">
+              <div className="flex gap-3 mt-3 items-start">
+                <div className="flex-shrink-0 w-80">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     CPM Report Path *
                   </label>
                   <input
                     type="text"
                     {...register('reportpath')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
                     placeholder="Enter CPM report path"
                   />
                   {errors.reportpath && (
-                    <p className="mt-1 text-sm text-red-600">{errors.reportpath.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.reportpath.message}</p>
                   )}
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="flex-shrink-0 w-80">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Decile Report Path *
                   </label>
                   <input
                     type="text"
                     {...register('qspath')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
                     placeholder="Enter decile report path"
                   />
                   {errors.qspath && (
-                    <p className="mt-1 text-sm text-red-600">{errors.qspath.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.qspath.message}</p>
                   )}
                 </div>
               </div>
@@ -819,26 +958,29 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         </div>
 
         {/* Section 5: Suppression List */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button
-            type="button"
+        <div className="bg-white border border-gray-200 rounded shadow-sm">
+          <div
             onClick={() => toggleSection(5)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <div className="flex items-center space-x-3">
-              <span className="text-red-600 font-semibold">5.</span>
-              <span className="text-lg">🚫</span>
-              <h3 className="text-sm font-semibold text-gray-800">Suppression List (Optional)</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-red-600 font-semibold text-sm">5.</span>
+              <h3 className="text-sm font-medium text-gray-800">Suppression List</h3>
             </div>
-            <span className="text-gray-400 text-xl">
-              {expandedSections.has(5) ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              type="button"
+              className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span className="text-sm">
+                {expandedSections.has(5) ? '⋯' : '›'}
+              </span>
+            </button>
+          </div>
 
           {expandedSections.has(5) && (
-            <div className="px-6 pb-6 border-t border-gray-100">
-              <div className="space-y-6 mt-4">
-                <div className="grid grid-cols-3 gap-4">
+            <div className="px-4 pb-4 border-t border-gray-100">
+              <div className="space-y-4 mt-3">
+                <div className="grid grid-cols-3 gap-3">
                   <label className="flex items-center">
                     <input
                       type="checkbox"
@@ -868,35 +1010,35 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                 </div>
 
                 {showClientSuppressionPath && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="w-96">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Client Suppression Path *
                     </label>
                     <input
                       type="text"
                       {...register('clientSuppressionPath')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      className="w-80 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                       placeholder="Enter client suppression file path"
                     />
                     {errors.clientSuppressionPath && (
-                      <p className="mt-1 text-sm text-red-600">{errors.clientSuppressionPath.message}</p>
+                      <p className="mt-1 text-xs text-red-600">{errors.clientSuppressionPath.message}</p>
                     )}
                   </div>
                 )}
 
                 {showRequestIdSuppressionList && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="w-96">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Request ID Suppression List *
                     </label>
                     <input
                       type="text"
                       {...register('requestIdSuppressionList')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 text-sm"
                       placeholder="Enter comma-separated request IDs"
                     />
                     {errors.requestIdSuppressionList && (
-                      <p className="mt-1 text-sm text-red-600">{errors.requestIdSuppressionList.message}</p>
+                      <p className="mt-1 text-xs text-red-600">{errors.requestIdSuppressionList.message}</p>
                     )}
                   </div>
                 )}
@@ -906,55 +1048,58 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         </div>
 
         {/* Section 6: Data Priority */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button
-            type="button"
+        <div className="bg-white border border-gray-200 rounded shadow-sm">
+          <div
             onClick={() => toggleSection(6)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <div className="flex items-center space-x-3">
-              <span className="text-orange-600 font-semibold">6.</span>
-              <span className="text-lg">⚡</span>
-              <h3 className="text-sm font-semibold text-gray-800">Data Priority (Optional)</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-orange-600 font-semibold text-sm">6.</span>
+              <h3 className="text-sm font-medium text-gray-800">Data Priority</h3>
             </div>
-            <span className="text-gray-400 text-xl">
-              {expandedSections.has(6) ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              type="button"
+              className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span className="text-sm">
+                {expandedSections.has(6) ? '⋯' : '›'}
+              </span>
+            </button>
+          </div>
 
           {expandedSections.has(6) && (
-            <div className="px-6 pb-6 border-t border-gray-100">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="px-4 pb-4 border-t border-gray-100">
+              <div className="flex gap-3 mt-3 items-start">
+                <div className="flex-shrink-0 w-80">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
                     Priority File Path (Optional)
                   </label>
                   <input
                     type="text"
                     {...register('priorityFile')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
                     placeholder="Enter priority file path"
                   />
                   {errors.priorityFile && (
-                    <p className="mt-1 text-sm text-red-600">{errors.priorityFile.message}</p>
+                    <p className="mt-1 text-xs text-red-600">{errors.priorityFile.message}</p>
                   )}
                 </div>
 
                 {showPriorityFields && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="flex-shrink-0 w-60">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
                       Priority File Percentage *
                     </label>
                     <input
                       type="number"
                       {...register('priorityFilePer', { valueAsNumber: true })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      placeholder="Enter percentage (1-100)"
+                      className="w-40 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                      placeholder="1-100"
                       min="1"
                       max="100"
                     />
                     {errors.priorityFilePer && (
-                      <p className="mt-1 text-sm text-red-600">{errors.priorityFilePer.message}</p>
+                      <p className="mt-1 text-xs text-red-600">{errors.priorityFilePer.message}</p>
                     )}
                   </div>
                 )}
@@ -964,39 +1109,42 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         </div>
 
         {/* Section 7: SQL Query */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <button
-            type="button"
+        <div className="bg-white border border-gray-200 rounded shadow-sm">
+          <div
             onClick={() => toggleSection(7)}
-            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
           >
-            <div className="flex items-center space-x-3">
-              <span className="text-indigo-600 font-semibold">7.</span>
-              <span className="text-lg">💻</span>
-              <h3 className="text-sm font-semibold text-gray-800">SQL Query</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-indigo-600 font-semibold text-sm">7.</span>
+              <h3 className="text-sm font-medium text-gray-800">SQL Query</h3>
               {watch('input_query') && (
-                <span className="text-green-600 text-sm">✓</span>
+                <span className="text-green-600 text-xs">✓</span>
               )}
             </div>
-            <span className="text-gray-400 text-xl">
-              {expandedSections.has(7) ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              type="button"
+              className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span className="text-sm">
+                {expandedSections.has(7) ? '⋯' : '›'}
+              </span>
+            </button>
+          </div>
 
           {expandedSections.has(7) && (
-            <div className="px-6 pb-6 border-t border-gray-100">
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="px-4 pb-4 border-t border-gray-100">
+              <div className="mt-3">
+                <label className="block text-xs font-medium text-gray-700 mb-1">
                   SQL Query *
                 </label>
                 <textarea
                   {...register('input_query')}
-                  rows={8}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                  rows={6}
+                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
                   placeholder="Enter your SQL query here..."
                 />
                 {errors.input_query && (
-                  <p className="mt-1 text-sm text-red-600">{errors.input_query.message}</p>
+                  <p className="mt-1 text-xs text-red-600">{errors.input_query.message}</p>
                 )}
               </div>
             </div>
@@ -1005,122 +1153,46 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
 
         {/* Section 8: Rerun Module Selection (Edit Mode Only) */}
         {editMode && (
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-            <button
-              type="button"
+          <div className="bg-white border border-gray-200 rounded shadow-sm">
+            <div
               onClick={() => toggleSection(8)}
-              className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+              className="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors cursor-pointer"
             >
-              <div className="flex items-center space-x-3">
-                <span className="text-purple-600 font-semibold">8.</span>
-                <span className="text-lg">🔄</span>
-                <h3 className="text-sm font-semibold text-gray-800">Rerun Module Selection</h3>
-                <span className="text-sm text-purple-600 font-medium">(Edit Mode)</span>
+              <div className="flex items-center space-x-2">
+                <span className="text-purple-600 font-semibold text-sm">8.</span>
+                <h3 className="text-sm font-medium text-gray-800">ReRun Module</h3>
               </div>
-              <span className="text-gray-400 text-xl">
-                {expandedSections.has(8) ? '▼' : '▶'}
-              </span>
-            </button>
+              <button
+                type="button"
+                className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <span className="text-sm">
+                  {expandedSections.has(8) ? '⋯' : '›'}
+                </span>
+              </button>
+            </div>
 
             {expandedSections.has(8) && (
-              <div className="px-6 pb-6 border-t border-gray-100">
-                <div className="mt-4">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Select which module to restart the request from. This allows you to rerun only specific parts of the process.
-                  </p>
+              <div className="px-4 pb-4 border-t border-gray-100">
+                <div className="mt-3">
 
-                  <div className="space-y-3">
-                    <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="rerunModule"
-                        value="TRT"
-                        className="text-purple-600 focus:ring-purple-500"
-                        defaultChecked
-                      />
-                      <div>
-                        <span className="font-medium text-gray-800">1. TRT</span>
-                        <p className="text-xs text-gray-500">Restart from TRT processing</p>
-                      </div>
+                  <div className="w-80">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Select Module to Restart From *
                     </label>
-
-                    <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="rerunModule"
-                        value="Responders"
-                        className="text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="font-medium text-gray-800">2. Responders</span>
-                        <p className="text-xs text-gray-500">Restart from responder processing</p>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="rerunModule"
-                        value="Suppression"
-                        className="text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="font-medium text-gray-800">3. Suppression</span>
-                        <p className="text-xs text-gray-500">Restart from suppression processing</p>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="rerunModule"
-                        value="Source"
-                        className="text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="font-medium text-gray-800">4. Source</span>
-                        <p className="text-xs text-gray-500">Restart from source processing</p>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="rerunModule"
-                        value="Delivered Report"
-                        className="text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="font-medium text-gray-800">5. Delivered Report</span>
-                        <p className="text-xs text-gray-500">Restart from delivered report generation</p>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="rerunModule"
-                        value="TimeStamp Appending"
-                        className="text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="font-medium text-gray-800">6. TimeStamp Appending</span>
-                        <p className="text-xs text-gray-500">Restart from timestamp appending</p>
-                      </div>
-                    </label>
-
-                    <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="rerunModule"
-                        value="IP Appending"
-                        className="text-purple-600 focus:ring-purple-500"
-                      />
-                      <div>
-                        <span className="font-medium text-gray-800">7. IP Appending</span>
-                        <p className="text-xs text-gray-500">Restart from IP appending</p>
-                      </div>
-                    </label>
+                    <select
+                      name="rerunModule"
+                      defaultValue="TRT"
+                      className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-sm"
+                    >
+                      <option value="TRT">1. TRT</option>
+                      <option value="Responders">2. Responders</option>
+                      <option value="Suppression">3. Suppression</option>
+                      <option value="Source">4. Source</option>
+                      <option value="Delivered Report">5. Delivered Report</option>
+                      <option value="TimeStamp Appending">6. TimeStamp Appending</option>
+                      <option value="IP Appending">7. IP Appending</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -1129,12 +1201,12 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         )}
 
         {/* Submit Section */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
+        <div className="bg-white border border-gray-200 rounded shadow-sm p-3">
           <div className="flex justify-center">
             <button
               type="submit"
               disabled={submitting}
-              className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
             >
               {submitting ? 'Submitting...' : (editMode ? 'Update & Rerun Request' : 'Submit Request')}
             </button>
@@ -1145,27 +1217,27 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
       {/* Add Client Modal */}
       {showAddClient && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
-            <h3 className="text-lg font-semibold mb-4">Add New Client</h3>
+          <div className="bg-white rounded p-4 w-80">
+            <h3 className="text-base font-semibold mb-3">Add New Client</h3>
             <input
               type="text"
               value={newClientName}
               onChange={(e) => setNewClientName(e.target.value)}
               placeholder="Enter client name"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
             />
-            <div className="flex justify-end space-x-3">
+            <div className="flex justify-end space-x-2">
               <button
                 type="button"
                 onClick={() => setShowAddClient(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                className="px-3 py-1 text-gray-600 hover:text-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleAddClient}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
               >
                 Add Client
               </button>
@@ -1177,21 +1249,21 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
       {/* Success Modal */}
       {showSuccessModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4">
+          <div className="bg-white rounded p-6 max-w-md w-full mx-4">
             <div className="text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
-                <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="mx-auto flex items-center justify-center h-10 w-10 rounded-full bg-green-100">
+                <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="mt-4 text-lg font-medium text-gray-900">Request Submitted Successfully!</h3>
+              <h3 className="mt-3 text-base font-medium text-gray-900">Request Submitted Successfully!</h3>
               <p className="mt-2 text-sm text-gray-500">
                 Your request has been submitted with ID: {lastSubmittedRequestId}
               </p>
-              <div className="mt-6">
+              <div className="mt-4">
                 <button
                   type="button"
-                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  className="w-full inline-flex justify-center rounded border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                   onClick={() => {
                     setShowSuccessModal(false);
                     if (onComplete) onComplete();
@@ -1204,6 +1276,32 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           </div>
         </div>
       )}
+
+      {/* Flush Delivery Data Modal */}
+      <FlushDeliveryDataModal
+        isOpen={showFlushModal}
+        onClose={handleFlushModalClose}
+        onConfirm={handleFlushDeliveryData}
+        clientName={clientName || ''}
+        weekValue={weekValue || ''}
+        loading={flushLoading}
+      />
+
+      {/* Flush Success Modal */}
+      <SuccessModal
+        isOpen={showFlushSuccessModal}
+        onClose={() => setShowFlushSuccessModal(false)}
+        title="Flush Operation Successful"
+        message={flushSuccessMessage}
+      />
+
+      {/* Flush Error Modal */}
+      <ErrorModal
+        isOpen={showFlushErrorModal}
+        onClose={() => setShowFlushErrorModal(false)}
+        title="Flush Operation Failed"
+        message={flushErrorMessage}
+      />
 
       {/* TODO: Add AlertModal when alert system is properly implemented */}
     </div>
