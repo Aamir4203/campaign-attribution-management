@@ -480,7 +480,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
                                 req_new_1=`echo $req_new | sed 's/-//g'`
 
-                                $CONNECTION_STRING -vv -c " with cte as ( select id from $SRC_TABLE where segment='$cpm_seg' and subseg='$cpm_subseg' and decile='$cpm_decile' and status in (0,1,2,3) and flag is null order by freq desc,status,random() limit $req_new_1 ) delete from $SRC_TABLE a using cte b where a.id=b.id "
+                                $CONNECTION_STRING -vv -c " with cte as ( select id from $SRC_TABLE where segment='$cpm_seg' and subseg='$cpm_subseg' and decile='$cpm_decile' and status in (0,1,2,3) and flag is null order by freq desc,status limit $req_new_1 ) delete from $SRC_TABLE a using cte b where a.id=b.id "
 
                                 if [[ $? -ne 0 ]]
                                 then
