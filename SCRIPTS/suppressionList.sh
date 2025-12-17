@@ -1,6 +1,10 @@
 #/bin/bash
 
 source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+source $TRACKING_HELPER
+
+append_process_id $REQUEST_ID "SUPP"
+
 
 echo "MODULE3 Start Time: `date`"
 
@@ -84,7 +88,7 @@ then
         #suppressed_cnt=`$CONNECTION_STRING -qtAX -c "with cte as (delete from $TRT_TABLE a using $SUPP_TABLE b where a.email=b.email returning 1) select count(*) from cte"`
 
         query="delete from $TRT_TABLE a using $SUPP_TABLE b where a.email=b.email "
-        suppressed_cnt=$(python3 $SCRIPTPATH/delete_partitions.py "$query")
+        suppressed_cnt=$(python3 "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
 
 
         if [[ $? -ne 0 ]]
@@ -123,7 +127,7 @@ else
         #suppressed_cnt=`$CONNECTION_STRING -qtAX -c "SET enable_seqscan TO off;with cte as (delete from $TRT_TABLE a using $SUPP_TABLE b where a.md5hash=b.md5hash returning 1) select count(*) from cte"`
 
         query="delete from $TRT_TABLE a using $SUPP_TABLE b where a.md5hash=b.md5hash "
-        suppressed_cnt=$(python3 $SCRIPTPATH/delete_partitions.py "$query")
+        suppressed_cnt=$(python3 "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
 
 
         if [[ $? -ne 0 ]]
@@ -150,20 +154,19 @@ fi
 if [[ $request_id_supp != '' ]]
 then
 
-	echo "MODULE3: REQUEST_ID SUPPRESSION START TIME: `date`"
+        echo "MODULE3: REQUEST_ID SUPPRESSION START TIME: `date`"
 
-	python3 $SCRIPTPATH/requestIdSuppression.py "$SCRIPTPATH" "$REQUEST_ID" "$TRT_TABLE" "$QA_TABLE"
+        python3 $SCRIPTPATH/requestIdSuppression.py "$SCRIPTPATH" "$REQUEST_ID" "$TRT_TABLE" "$QA_TABLE"
 
-	if [[ $? -ne 0 ]]
-	then
+        if [[ $? -ne 0 ]]
+        then
 
-					error_fun "3" "Unable to perform suppression to the TRT on Request_Id"
-		exit
+                                        error_fun "3" "Unable to perform suppression to the TRT on Request_Id"
+                exit
 
-	fi
-	echo "MODULE3: REQUEST_ID SUPPRESSION END TIME: `date`"
+        fi
+        echo "MODULE3: REQUEST_ID SUPPRESSION END TIME: `date`"
 
 fi
 
 sh -x $SCRIPTPATH/srcPreparation.sh  $REQUEST_ID >>$HOMEPATH/LOGS/$REQUEST_ID.log 2>>$HOMEPATH/LOGS/$REQUEST_ID.log
-
