@@ -1,4 +1,3 @@
-
 import os
 import sys
 import logging
@@ -7,13 +6,15 @@ from sqlalchemy import create_engine
 import psycopg2
 import subprocess
 
-sys.path.append('/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES')
+sys.path.append("/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES")
 from DbConns import *
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
-#if len(sys.argv) != 4:
+# if len(sys.argv) != 4:
 #    logger.error("Usage: python3 script.py <SCRIPTPATH> <REQUEST_ID> <TRT_TABLE>")
 #    sys.exit(1)
 
@@ -23,15 +24,15 @@ TRT_TABLE = sys.argv[3]
 QA_TABLE = sys.argv[4]
 
 # Track this process
-track_command = f'''
+track_command = f"""
 track_process() {{
     source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
     source $TRACKING_HELPER
     append_process_id $1 "REQUEST_ID_SUPPRESSION"
 }}
 track_process {REQUEST_ID}
-'''
-subprocess.run(['bash', '-c', track_command], check=False)
+"""
+subprocess.run(["bash", "-c", track_command], check=False)
 
 logger.info(f"Started Request Suppression Script for REQUEST_ID={REQUEST_ID}")
 
@@ -46,7 +47,7 @@ try:
     df = pd.read_sql(
         f"SELECT * FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND WHERE request_id = %s",
         params=[REQUEST_ID],
-        con=conn
+        con=conn,
     )
 except Exception as e:
     logger.error(f"Failed to load request details for request_id={REQUEST_ID}: {e}")
@@ -77,7 +78,7 @@ supp_client_ids = []
 for req_id in supp_ids:
     cur.execute(
         "SELECT client_id FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND WHERE request_id = %s",
-        (req_id,)
+        (req_id,),
     )
     row = cur.fetchone()
     if not row:
@@ -96,7 +97,7 @@ total_suppressed = 0
 for cli_id in supp_client_ids:
     cur.execute(
         "SELECT prev_week_pb_table FROM APT_CUSTOM_CLIENT_INFO_TABLE_DND WHERE client_id = %s",
-        (cli_id,)
+        (cli_id,),
     )
     row = cur.fetchone()
     if not row:
@@ -110,14 +111,15 @@ for cli_id in supp_client_ids:
 
     try:
         output = subprocess.check_output(
-            ["python3", script_path, query],
-            text=True
+            ["python3", script_path, query, str(REQUEST_ID)], text=True
         ).strip()
 
         deleted_count = int(output)
         total_suppressed += deleted_count
         logger.info(f"Suppressed {deleted_count} records for client_id={cli_id}")
-        update_query = f"UPDATE {QA_TABLE} SET REQUEST_ID_SUPP_COUNT = %s WHERE REQUEST_ID = %s"
+        update_query = (
+            f"UPDATE {QA_TABLE} SET REQUEST_ID_SUPP_COUNT = %s WHERE REQUEST_ID = %s"
+        )
         cur.execute(update_query, (total_suppressed, REQUEST_ID))
 
     except subprocess.CalledProcessError as e:

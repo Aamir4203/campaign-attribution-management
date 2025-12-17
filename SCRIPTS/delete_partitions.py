@@ -7,38 +7,46 @@ import logging
 import subprocess
 import os
 
-DB_HOST = 'zds-prod-pgdb01-01.bo3.e-dialog.com'
-DB_PORT = '5432'  
-DB_NAME = 'apt_tool_db'
-DB_USER = 'datateam'
-DB_PASSWORD = 'Datat3amSU!'
+DB_HOST = "zds-prod-pgdb01-01.bo3.e-dialog.com"
+DB_PORT = "5432"
+DB_NAME = "apt_tool_db"
+DB_USER = "datateam"
+DB_PASSWORD = "Datat3amSU!"
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 def execute_query(query_and_request_id):
     query, request_id = query_and_request_id
     try:
         # Track this worker process
         if request_id:
-            track_command = f'''
+            track_command = f"""
             track_process() {{
                 source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
                 source $TRACKING_HELPER
                 append_process_id $1 "DELETE_PARTITION_WORKER"
             }}
             track_process {request_id}
-            '''
-            subprocess.run(['bash', '-c', track_command], check=False)
+            """
+            subprocess.run(
+                ["bash", "-c", track_command],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
         conn = psycopg2.connect(
             host=DB_HOST,
             port=DB_PORT,
             database=DB_NAME,
             user=DB_USER,
-            password=DB_PASSWORD
+            password=DB_PASSWORD,
         )
-        conn.autocommit = True  
+        conn.autocommit = True
 
         cur = conn.cursor()
 
@@ -55,9 +63,10 @@ def execute_query(query_and_request_id):
         logger.error(f"Error executing query: {e}")
         return None
 
+
 def parse_query_and_get_table(query):
     try:
-        match = re.search(r'delete\s+from\s+(\w+)\s+', query, re.IGNORECASE)
+        match = re.search(r"delete\s+from\s+(\w+)\s+", query, re.IGNORECASE)
         if match:
             table_name = match.group(1)
             return table_name
@@ -68,6 +77,7 @@ def parse_query_and_get_table(query):
         logger.error(f"Error parsing query: {e}")
         return None
 
+
 def get_partition_names(table_name):
     try:
         conn = psycopg2.connect(
@@ -75,13 +85,15 @@ def get_partition_names(table_name):
             port=DB_PORT,
             database=DB_NAME,
             user=DB_USER,
-            password=DB_PASSWORD
+            password=DB_PASSWORD,
         )
-        conn.autocommit = True  
+        conn.autocommit = True
 
         cur = conn.cursor()
 
-        cur.execute(sql.SQL("""
+        cur.execute(
+            sql.SQL(
+                """
             SELECT child.relname
             FROM pg_inherits
             JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
@@ -89,7 +101,9 @@ def get_partition_names(table_name):
             JOIN pg_namespace nmsp_parent ON nmsp_parent.oid = parent.relnamespace
             JOIN pg_namespace nmsp_child ON nmsp_child.oid = child.relnamespace
             WHERE parent.relname = lower({});
-        """).format(sql.Literal(table_name)))
+        """
+            ).format(sql.Literal(table_name))
+        )
 
         partition_names = [row[0] for row in cur.fetchall()]
 
@@ -102,24 +116,30 @@ def get_partition_names(table_name):
         logger.error(f"Error fetching partition names: {e}")
         return []
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     try:
         if len(sys.argv) < 3:
             raise ValueError("Delete query and request_id not provided as arguments.")
 
-        delete_query = sys.argv[1]  
+        delete_query = sys.argv[1]
         request_id = sys.argv[2]
 
         # Track main process - create bash function to handle positional parameters
-        track_command = f'''
+        track_command = f"""
         track_process() {{
             source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
             source $TRACKING_HELPER
             append_process_id $1 "DELETE_PARTITION_MAIN"
         }}
         track_process {request_id}
-        '''
-        subprocess.run(['bash', '-c', track_command], check=False)
+        """
+        subprocess.run(
+            ["bash", "-c", track_command],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
         table_name = parse_query_and_get_table(delete_query)
         if not table_name:
@@ -139,7 +159,9 @@ if __name__ == '__main__':
         try:
             results = pool.map(execute_query, partition_queries)
             total_deleted_count = sum(results)
-            logger.info(f"Total deleted count across all partitions: {total_deleted_count}")
+            logger.info(
+                f"Total deleted count across all partitions: {total_deleted_count}"
+            )
 
             print(total_deleted_count)
 
