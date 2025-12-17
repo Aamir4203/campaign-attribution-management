@@ -281,7 +281,7 @@ fi
 if [[ $priority == 'Y' ]]
 then
 
-        priority_order=" a.priority,"
+        priority_order=" , a.priority"
 
 else
 
