@@ -330,7 +330,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                         if [[ $req_cnt -gt 0 ]]
                         then
 
-                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email join  $HARDS_TABLE d on a.email=d.email where c.email is null and b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' order by random() ) insert into $SRC_TABLE($trt_header,freq,status,flag) select  * from cte limit $req_cnt on conflict do nothing"
+                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email join  $HARDS_TABLE d on a.email=d.email where c.email is null and b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' ) insert into $SRC_TABLE($trt_header,freq,status,flag) select  * from cte limit $req_cnt on conflict do nothing"
 
                                 if [[ $? -ne 0 ]]
                                 then
@@ -365,7 +365,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                         if [[ $req_cnt -gt 0 ]]
                         then
 
-                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email  where  b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' order by random() ) insert into $SRC_TABLE($trt_header,freq,status,flag) select * from cte order by trt_freq desc limit $req_cnt on conflict do nothing"
+                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email  where  b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg'  ) insert into $SRC_TABLE($trt_header,freq,status,flag) select * from cte order by trt_freq desc limit $req_cnt on conflict do nothing"
 
                                 if [[ $? -ne 0 ]]
                                 then
@@ -443,8 +443,8 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
                         req_old=`echo $total_old-$avl_old | bc`
 
-                        #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq , $priority_order random() ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_old"
-                        $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq , $priority_order RANDOM()) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_old;"
+                        #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq , $priority_order ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_old"
+                        $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq , $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_old;"
 
                         if [[ $? -ne 0 ]]
                         then
@@ -463,8 +463,8 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
                                 echo "SRC Decile Wise, Frequency wise insert Start time: `date`"
 
-                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email  left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile' order by trt_freq desc , $priority_order random() ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_new "
-                                $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order RANDOM()) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_new;"
+                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email  left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile' order by trt_freq desc , $priority_order ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_new "
+                                $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_new;"
                         if [[ $? -ne 0 ]]
                         then
 
@@ -515,8 +515,8 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                         if [[ $req_cnt -gt 0 ]]
                         then
 
-                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq desc, $priority_order random() ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_cnt"
-                                $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order RANDOM()) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_cnt;"
+                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq desc, $priority_order ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_cnt"
+                                $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_cnt;"
                                 if [[ $? -ne 0 ]]
                                 then
 
@@ -831,7 +831,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                                         if [[ $req_cnt -gt 0 ]]
                                         then
 
-                                                $CONNECTION_STRING -vv -c " with cte as ( select $trt_header,0 status,unsub,freq from  $SRC_TABLE  where segment='$cpm_seg' and subseg='$cpm_subseg' and decile='$cpm_decile' and (flag is null or flag='S') and unsub=0 and touch=$prev_touch order by del_date,random()) insert into $SRC_TABLE($trt_header,status,unsub,freq,touch) select $trt_header,status,unsub,freq,$touch_counter from cte limit $req_cnt"
+                                                $CONNECTION_STRING -vv -c " with cte as ( select $trt_header,0 status,unsub,freq from  $SRC_TABLE  where segment='$cpm_seg' and subseg='$cpm_subseg' and decile='$cpm_decile' and (flag is null or flag='S') and unsub=0 and touch=$prev_touch order by del_date) insert into $SRC_TABLE($trt_header,status,unsub,freq,touch) select $trt_header,status,unsub,freq,$touch_counter from cte limit $req_cnt"
 
                                                 if [[ $? -ne 0 ]]
                                                 then
