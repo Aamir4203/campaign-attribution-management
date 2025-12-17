@@ -1,10 +1,5 @@
 source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
 
-source $TRACKING_HELPER
-
-append_process_id $REQUEST_ID "SRC"
-
-
 echo "MODULE4 Start Time: `date`"
 
 
@@ -103,8 +98,8 @@ client_name=`$CONNECTION_STRING -qtAX -c "select upper(CLIENT_NAME) from $CLIENT
 
 if [[ $client_name == 'VERIZON' ]]
 then
-        uniq_key="email,del_date,segment"
-        select_ver=" distinct "
+	uniq_key="email,del_date,segment"
+	select_ver=" distinct "
         #$CONNECTION_STRING -vv -c "truncate table $LAST_WK_PB_TABLE"
 
         $CONNECTION_STRING -vv -c "truncate table $OLD_DATA"
@@ -113,8 +108,8 @@ then
 
 else
 
-        select_ver=" "
-        uniq_key="email,del_date"
+	select_ver=" "
+	uniq_key="email,del_date"
 
 fi
 
@@ -160,11 +155,9 @@ fi
 
 echo "POSTED UNSUB SUPP START TIME: `date`"
 
+#unsubs_supp_cnt=`$CONNECTION_STRING -qtAX -c "SET enable_seqscan TO off;with cte as (delete from $TRT_TABLE a using $posted_unsub_table b where a.email=b.email returning 1 ) select count(*) from cte"`
 query="delete from $TRT_TABLE a using $posted_unsub_table b where a.email=b.email "
-#unsubs_supp_cnt=$(python3 $SCRIPTPATH/delete_partitions.py "$query" "$REQUEST_ID")
-
-
-unsubs_supp_cnt=$(python3 "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
+unsubs_supp_cnt=$(python3 $SCRIPTPATH/delete_partitions.py "$query")
 
 if [[ $? -ne 0 ]]
 then
@@ -232,14 +225,14 @@ $CONNECTION_STRING -vv -c "create table $SRC_TABLE (like $TRT_TABLE)"
 
 if [[ $client_name == 'VERIZON' ]]
 then
-        $CONNECTION_STRING -vv -c "alter table $SRC_TABLE add status int default 0,add unsub int default 0,add freq int default 1,add flag varchar,add del_date varchar,add id serial primary key,add touch int default 1,add unique(email,segment); comment on column $SRC_TABLE.status is '-1 - Bounce, 0 - Random, 1 - Genuine, 2 - Open, 3 - Click' "
+	$CONNECTION_STRING -vv -c "alter table $SRC_TABLE add status int default 0,add unsub int default 0,add freq int default 1,add flag varchar,add del_date varchar,add id serial primary key,add touch int default 1,add unique(email,segment); comment on column $SRC_TABLE.status is '-1 - Bounce, 0 - Random, 1 - Genuine, 2 - Open, 3 - Click' "
 
-        src_idx_key_ver=src_email_idx_$REQUEST_ID
-        $CONNECTION_STRING -vv -c "create index $src_idx_key_ver on $SRC_TABLE(email)"
+	src_idx_key_ver=src_email_idx_$REQUEST_ID
+	$CONNECTION_STRING -vv -c "create index $src_idx_key_ver on $SRC_TABLE(email)"
 
 else
 
-        $CONNECTION_STRING -vv -c "alter table $SRC_TABLE add status int default 0,add unsub int default 0,add freq int default 1,add flag varchar,add del_date varchar,add id serial primary key,add touch int default 1,add unique(email); comment on column $SRC_TABLE.status is '-1 - Bounce, 0 - Random, 1 - Genuine, 2 - Open, 3 - Click' "
+	$CONNECTION_STRING -vv -c "alter table $SRC_TABLE add status int default 0,add unsub int default 0,add freq int default 1,add flag varchar,add del_date varchar,add id serial primary key,add touch int default 1,add unique(email); comment on column $SRC_TABLE.status is '-1 - Bounce, 0 - Random, 1 - Genuine, 2 - Open, 3 - Click' "
 fi
 
 
@@ -330,7 +323,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                         if [[ $req_cnt -gt 0 ]]
                         then
 
-                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email join  $HARDS_TABLE d on a.email=d.email where c.email is null and b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' order by random() ) insert into $SRC_TABLE($trt_header,freq,status,flag) select  * from cte limit $req_cnt on conflict do nothing"
+                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email join  $HARDS_TABLE d on a.email=d.email where c.email is null and b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' ) insert into $SRC_TABLE($trt_header,freq,status,flag) select  * from cte limit $req_cnt on conflict do nothing"
 
                                 if [[ $? -ne 0 ]]
                                 then
@@ -365,7 +358,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                         if [[ $req_cnt -gt 0 ]]
                         then
 
-                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email  where  b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' order by random() ) insert into $SRC_TABLE($trt_header,freq,status,flag) select * from cte order by trt_freq desc limit $req_cnt on conflict do nothing"
+                                $CONNECTION_STRING -vv -c "with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email  where  b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' ) insert into $SRC_TABLE($trt_header,freq,status,flag) select * from cte order by trt_freq desc limit $req_cnt on conflict do nothing"
 
                                 if [[ $? -ne 0 ]]
                                 then
@@ -432,7 +425,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                 cpm_seg=`echo $decile_stats | cut -d'|' -f5`
                 cpm_subseg=`echo $decile_stats | cut -d'|' -f6`
                 cpm_decile=`echo $decile_stats | cut -d'|' -f7`
-                old_per=`echo $decile_stats | cut -d'|' -f8`
+		old_per=`echo $decile_stats | cut -d'|' -f8`
 
                 total_old=`echo $old_per*$cpm_sent/100 | bc`
 
@@ -443,8 +436,8 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
                         req_old=`echo $total_old-$avl_old | bc`
 
-                        #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq , $priority_order random() ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_old"
-                        $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq , $priority_order RANDOM()) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_old;"
+                        #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq , $priority_order ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_old"
+			$CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq , $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_old;"
 
                         if [[ $? -ne 0 ]]
                         then
@@ -463,8 +456,8 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
                                 echo "SRC Decile Wise, Frequency wise insert Start time: `date`"
 
-                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email  left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile' order by trt_freq desc , $priority_order random() ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_new "
-                                $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order RANDOM()) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_new;"
+                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email  left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile' order by trt_freq desc , $priority_order ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_new "
+				$CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_new;"
                         if [[ $? -ne 0 ]]
                         then
 
@@ -515,8 +508,8 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                         if [[ $req_cnt -gt 0 ]]
                         then
 
-                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq desc, $priority_order random() ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_cnt"
-                                $CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order RANDOM()) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_cnt;"
+                                #$CONNECTION_STRING -vv -c " with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  order by trt_freq desc, $priority_order ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte limit $req_cnt"
+				$CONNECTION_STRING -vv -c "WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC, $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_cnt;"
                                 if [[ $? -ne 0 ]]
                                 then
 
@@ -543,7 +536,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                         fi
                 fi
 
-                $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
+		$CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
         done <$unique_decile_file
 
 
@@ -719,7 +712,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
 
                 fi
-                $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
+		$CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
 
 
         done <$SPOOLPATH/deldate_counts
@@ -736,10 +729,10 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
                 while read check_touch
                 do
-                                        cpm_sent=`echo $check_touch | cut -d'|' -f1`
-                                        cpm_seg=`echo $check_touch | cut -d'|' -f5`
-                                        cpm_subseg=`echo $check_touch | cut -d'|' -f6`
-                                        cpm_decile=`echo $check_touch | cut -d'|' -f7`
+					cpm_sent=`echo $check_touch | cut -d'|' -f1`
+					cpm_seg=`echo $check_touch | cut -d'|' -f5`
+					cpm_subseg=`echo $check_touch | cut -d'|' -f6`
+					cpm_decile=`echo $check_touch | cut -d'|' -f7`
 
                      avl_cnt=`$CONNECTION_STRING -qtAX -c "select count(email) from $SRC_TABLE where segment='$cpm_seg' and subseg='$cpm_subseg' and decile='$cpm_decile' " `
 
@@ -782,13 +775,13 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                                 $CONNECTION_STRING -vv -c "create table $SRC_TABLE (like $TRT_TABLE)"
 
                                 $CONNECTION_STRING -vv -c "alter table $SRC_TABLE add status int default 0,add unsub int default 0,add freq int default 1,add flag varchar,add del_date varchar,add id serial primary key,add touch int default 1; comment on column $SRC_TABLE.status is '-1 - Bounce, 0 - Random, 1 - Genuine, 2 - Open, 3 - Click' "
-                                if [[ $client_name == 'VERIZON' ]]
-                                then
-                                        $CONNECTION_STRING -vv -c " alter table $SRC_TABLE add unique(email,del_date,segment) "
+				if [[ $client_name == 'VERIZON' ]]
+				then
+                                	$CONNECTION_STRING -vv -c " alter table $SRC_TABLE add unique(email,del_date,segment) "
 
-                                else
-                                        $CONNECTION_STRING -vv -c " alter table $SRC_TABLE add unique(email,del_date) "
-                                fi
+				else
+					$CONNECTION_STRING -vv -c " alter table $SRC_TABLE add unique(email,del_date) "
+				fi
 
                                 $CONNECTION_STRING -vv -c " insert into  $SRC_TABLE($trt_header,status,unsub,freq,flag,del_date,touch) select $trt_header,status,unsub,freq,flag,del_date,touch from $UNIQ_SRC_TABLE "
 
@@ -831,7 +824,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                                         if [[ $req_cnt -gt 0 ]]
                                         then
 
-                                                $CONNECTION_STRING -vv -c " with cte as ( select $trt_header,0 status,unsub,freq from  $SRC_TABLE  where segment='$cpm_seg' and subseg='$cpm_subseg' and decile='$cpm_decile' and (flag is null or flag='S') and unsub=0 and touch=$prev_touch order by del_date,random()) insert into $SRC_TABLE($trt_header,status,unsub,freq,touch) select $trt_header,status,unsub,freq,$touch_counter from cte limit $req_cnt"
+                                                $CONNECTION_STRING -vv -c " with cte as ( select $trt_header,0 status,unsub,freq from  $SRC_TABLE  where segment='$cpm_seg' and subseg='$cpm_subseg' and decile='$cpm_decile' and (flag is null or flag='S') and unsub=0 and touch=$prev_touch order by del_date) insert into $SRC_TABLE($trt_header,status,unsub,freq,touch) select $trt_header,status,unsub,freq,$touch_counter from cte limit $req_cnt"
 
                                                 if [[ $? -ne 0 ]]
                                                 then
@@ -844,7 +837,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                                         fi
 
                                 fi
-                                $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
+				$CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
 
 
 
@@ -875,7 +868,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                                 then
 
                                         #$CONNECTION_STRING -vv -c "with cte as (select x.id from $SRC_TABLE x  left join (select email from $SRC_TABLE  where del_date='$del_deldate' ) y on x.email=y.email where y.email is null and x.del_date is null and x.segment='$del_seg' and x.subseg='$del_subseg' order by random() limit $req_del_cnt) update $SRC_TABLE a set del_date='$del_deldate' from cte b where a.id=b.id"
-                                        $CONNECTION_STRING -vv -c " WITH cte AS (  SELECT x.id FROM $SRC_TABLE x WHERE NOT EXISTS ( SELECT 1 FROM $SRC_TABLE y  WHERE y.email = x.email AND y.del_date = '$del_deldate' ) AND x.del_date IS NULL AND x.segment = '$del_seg' AND x.subseg = '$del_subseg' ORDER BY random() LIMIT $req_del_cnt) UPDATE $SRC_TABLE a SET del_date = '$del_deldate' FROM cte b WHERE a.id = b.id "
+					$CONNECTION_STRING -vv -c " WITH cte AS (  SELECT x.id FROM $SRC_TABLE x WHERE NOT EXISTS ( SELECT 1 FROM $SRC_TABLE y  WHERE y.email = x.email AND y.del_date = '$del_deldate' ) AND x.del_date IS NULL AND x.segment = '$del_seg' AND x.subseg = '$del_subseg' ORDER BY random() LIMIT $req_del_cnt) UPDATE $SRC_TABLE a SET del_date = '$del_deldate' FROM cte b WHERE a.id = b.id "
 
                                                 if [[ $? -ne 0 ]]
                                                 then
@@ -971,7 +964,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
 
                                 fi
-                        $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
+			$CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
 
                         done <$SPOOLPATH/deldate_counts
 
@@ -1101,7 +1094,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
 
                                 fi
-                                $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
+				$CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
 
 
                         done <$decile_file
@@ -1172,7 +1165,7 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
                                                 fi
 
                                 fi
-                                $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
+				$CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
 
 
 
@@ -1308,3 +1301,4 @@ $CONNECTION_STRING -vv -c "UPDATE $REQUEST_TABLE set REQUEST_STATUS='R',REQUEST_
 
 
 sh -x $SCRIPTPATH/deliveredScript.sh  $REQUEST_ID >>$HOMEPATH/LOGS/$REQUEST_ID.log 2>>$HOMEPATH/LOGS/$REQUEST_ID.log
+
