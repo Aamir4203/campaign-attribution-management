@@ -1,5 +1,7 @@
 source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+source $TRACKING_HELPER
 
+append_process_id $REQUEST_ID "RESP"
 echo "MODULE2 Start Time: `date`"
 
 
@@ -50,6 +52,10 @@ IFS=$',' read -r max_date_1 min_date <<< "$RANGE"
 
 max_date=`date -d "$max_date_1 1 days" +%Y-%m-%d`
 
+formatted_max_date=$(echo "$max_date" | sed 's/-//g')
+formatted_min_date=$(echo "$min_date" | sed 's/-//g')
+
+
 creatives=`echo $CREATIVE_ID | sed "s/\b\([0-9]\+\)\b/'\1'/g"|tr ' ' ','`
 
 offers=`echo $OFFERIDS |sed "s/\b\([0-9]\+\)\b/'\1'/g"|tr ' ' ','`
@@ -60,14 +66,16 @@ orange_cake_offids=`$CONNECTION_STRING -qtAX -c "select DISTINCT trim(OFFERID)  
 #=== Green Delivered ===#
 
 
-$PRESTO_CON_STRING --execute "select distinct toaddress,delivereddate,subid,bouncecat from $DELIVERED_TABLE  where  offerid in ($offers)  and delivereddate between cast('$min_date' as date) and cast('$max_date' as date) " --output-format TSV_HEADER | tr '\t' '|' >$SPOOLPATH/delivered
+$SF_STRING -q "SELECT DISTINCT TOADDRESS,TO_CHAR(TO_DATE(TIMELOGGED_DATE, 'YYYYMMDD'), 'YYYY-MM-DD') DEL_DATE,SUBID,BOUNCECAT FROM GREEN.LIST_PROCESSING.PMTA_LOG_SUMMARY_ACTIVE_HISTORICAL WHERE OFFERID IN ($offers) AND TIMELOGGED_DATE BETWEEN '$formatted_min_date' and '$formatted_max_date' and (BOUNCECAT='success' or DELIVEREDSTATUS='Hard Bounce') and  REGEXP_LIKE(listId, '^[0-9]+$') and type in ('d','b')  ;" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   >$SPOOLPATH/delivered
+
 
 if [[ $? -ne 0 ]]
 then
 
         sleep 5s
 
-        $PRESTO_CON_STRING --execute "select distinct toaddress,delivereddate,subid,bouncecat from $DELIVERED_TABLE  where  offerid in ($offers)  and delivereddate between '$min_date' and '$max_date' " --output-format TSV_HEADER | tr '\t' '|'>$SPOOLPATH/delivered
+        $SF_STRING -q "SELECT DISTINCT TOADDRESS,TO_CHAR(TO_DATE(TIMELOGGED_DATE, 'YYYYMMDD'), 'YYYY-MM-DD') DEL_DATE,SUBID,BOUNCECAT FROM GREEN.LIST_PROCESSING.PMTA_LOG_SUMMARY_ACTIVE_HISTORICAL WHERE OFFERID IN ($offers) AND TIMELOGGED_DATE BETWEEN '$formatted_min_date' and '$formatted_max_date' and (BOUNCECAT='success' or DELIVEREDSTATUS='Hard Bounce')  and  REGEXP_LIKE(listId, '^[0-9]+$') and type in ('d','b')  ;" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   >$SPOOLPATH/delivered
+
 
         if [[ $? -ne 0 ]]
         then
@@ -104,14 +112,14 @@ fi
 
 #=== Green opens ===#
 
-$PRESTO_CON_STRING --execute "select distinct email,open_date,subid from ( select distinct profileid,p_lastopendate as open_date,subid from zx_tenant_database.APT_OPEN_DETAILS where offerid in ($offers) and  p_lastopendate >='$min_date') a join apt_custom_universal_profile_par b on a.profileid=b.profileid "  --output-format TSV_HEADER | tr '\t' '|' >$SPOOLPATH/opens
+$SF_STRING -q "select distinct EMAILID,OPENDATE,SUBID from GREEN.GREEN_LPT.RAW_OPENS_FOLLOWUP where OPENDATE>='$min_date' and OFFERID in ($offers);" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'  >$SPOOLPATH/opens
 
 if [[ $? -ne 0 ]]
 then
 
         sleep 5s
 
-        $PRESTO_CON_STRING --execute " select distinct email,open_date,subid from ( select distinct profileid,p_lastopendate as open_date,subid from zx_tenant_database.APT_OPEN_DETAILS where offerid in ($offers) and  p_lastopendate >='$min_date') a join apt_custom_universal_profile_par b on a.profileid=b.profileid  "  --output-format TSV_HEADER | tr '\t' '|'>$SPOOLPATH/opens
+        $SF_STRING -q "select distinct EMAILID,OPENDATE,SUBID from GREEN.GREEN_LPT.RAW_OPENS_FOLLOWUP where OPENDATE>='$min_date' and OFFERID in ($offers);" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'  >$SPOOLPATH/opens
 
 
         if [[ $? -ne 0 ]]
@@ -155,14 +163,15 @@ fi
 #=== Green clicks ===#
 
 
-$PRESTO_CON_STRING --execute " select distinct email,click_date,subid from ( select distinct profileid,p_lastclickdate as click_date,subid from APT_CLICK_DETAILS where offerid in ($offers) and  p_lastclickdate >='$min_date') a join apt_custom_universal_profile_par b on a.profileid=b.profileid  " --output-format TSV_HEADER | tr '\t' '|'>$SPOOLPATH/clicks
+$SF_STRING -q "select distinct EMAILID,CLICKDATE,SUBID from GREEN.LIST_PROCESSING.RAW_CLICKS_FOLLOWUP_SF where CLICKDATE>='$min_date' and OFFERID in ($offers);" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'  >$SPOOLPATH/clicks
 
 if [[ $? -ne 0 ]]
 then
 
         sleep 5s
 
-        $PRESTO_CON_STRING --execute " select distinct email,click_date,subid from ( select distinct profileid,p_lastclickdate as click_date,subid from APT_CLICK_DETAILS where offerid in ($offers) and  p_lastclickdate >='$min_date') a join apt_custom_universal_profile_par b on a.profileid=b.profileid " --output-format TSV_HEADER | tr '\t' '|' >$SPOOLPATH/clicks
+        $SF_STRING -q "select distinct EMAILID,CLICKDATE,SUBID from GREEN.LIST_PROCESSING.RAW_CLICKS_FOLLOWUP_SF where CLICKDATE>='$min_date' and OFFERID in ($offers);" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'  >$SPOOLPATH/clicks
+
 
         if [[ $? -ne 0 ]]
         then
@@ -201,14 +210,14 @@ fi
 #==== GREEN ALL UNSUBS ===#
 
 
-$PRESTO_CON_STRING --execute "select distinct email from apt_unsub_details where  offerid in ($offers) and p_lastunsubdate<'$min_date' "  --output-format TSV_HEADER | tr '\t' '|'> $SPOOLPATH/green_all_unsubs
+$SF_STRING -q "select distinct email from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)<'$min_date' "  -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   > $SPOOLPATH/green_all_unsubs
 
 if [[ $? -ne 0 ]]
 then
 
         sleep 5s
 
-        $PRESTO_CON_STRING --execute "select distinct email from apt_unsub_details where  offerid in ($offers) and p_lastunsubdate<'$min_date'"  --output-format TSV_HEADER | tr '\t' '|'> $SPOOLPATH/green_all_unsubs
+        $SF_STRING -q "select distinct email from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)<'$min_date'"  -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   > $SPOOLPATH/green_all_unsubs
 
         if [[ $? -ne 0 ]]
         then
@@ -248,14 +257,14 @@ fi
 
 #=== Green Unsubs ===#
 
-$PRESTO_CON_STRING --execute "select email,p_lastunsubdate,subid from APT_UNSUB_DETAILS where  offerid in ($offers) and p_lastunsubdate>='$min_date' " --output-format TSV_HEADER | tr '\t' '|' > $SPOOLPATH/unsubs
+$SF_STRING -q "select email,to_date(LASTUNSUBDATE),subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr '\t' '|' > $SPOOLPATH/unsubs
 
 if [[ $? -ne 0 ]]
 then
 
         sleep 5s
 
-        $PRESTO_CON_STRING --execute "select email,p_lastunsubdate,subid from APT_UNSUB_DETAILS where  offerid in ($offers) and p_lastunsubdate>='$min_date' " --output-format TSV_HEADER | tr '\t' '|' > $SPOOLPATH/unsubs
+        $SF_STRING -q "select email,to_date(LASTUNSUBDATE),subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr '\t' '|' > $SPOOLPATH/unsubs
 
         if [[ $? -ne 0 ]]
         then
