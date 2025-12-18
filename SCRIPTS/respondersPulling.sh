@@ -1,5 +1,7 @@
 source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+source $TRACKING_HELPER
 
+append_process_id $REQUEST_ID "RESP"
 echo "MODULE2 Start Time: `date`"
 
 
