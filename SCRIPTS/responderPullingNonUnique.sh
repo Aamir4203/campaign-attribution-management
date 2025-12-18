@@ -69,7 +69,7 @@ orange_cake_offids=`$CONNECTION_STRING -qtAX -c "select DISTINCT trim(OFFERID)  
 #=== Green Delivered ===#
 
 
-$SF_STRING -q "SELECT DISTINCT TOADDRESS,TO_CHAR(TO_DATE(TIMELOGGED_DATE, 'YYYYMMDD'), 'YYYY-MM-DD') DEL_DATE,SUBID,BOUNCECAT FROM GREEN.LIST_PROCESSING.PMTA_LOG_SUMMARY_ACTIVE_HISTORICAL WHERE OFFERID IN ($offers) AND TIMELOGGED_DATE BETWEEN '$formatted_min_date' and '$formatted_max_date' and (BOUNCECAT='success' or DELIVEREDSTATUS='Hard Bounce') and  REGEXP_LIKE(listId, '^[0-9]+$') and type in ('d','b') and BOUNCECAT  ;" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   >$SPOOLPATH/delivered
+$SF_STRING -q "SELECT DISTINCT TOADDRESS,TO_CHAR(TO_DATE(TIMELOGGED_DATE, 'YYYYMMDD'), 'YYYY-MM-DD') DEL_DATE,SUBID,BOUNCECAT FROM GREEN.LIST_PROCESSING.PMTA_LOG_SUMMARY_ACTIVE_HISTORICAL WHERE OFFERID IN ($offers) AND TIMELOGGED_DATE BETWEEN '$formatted_min_date' and '$formatted_max_date' and (BOUNCECAT='success' or DELIVEREDSTATUS='Hard Bounce') and  REGEXP_LIKE(listId, '^[0-9]+$') and type in ('d','b')  ;" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   >$SPOOLPATH/delivered
 
 
 if [[ $? -ne 0 ]]
@@ -77,7 +77,7 @@ then
 
         sleep 5s
 
-        $SF_STRING -q "SELECT DISTINCT TOADDRESS,TO_CHAR(TO_DATE(TIMELOGGED_DATE, 'YYYYMMDD'), 'YYYY-MM-DD') DEL_DATE,SUBID,BOUNCECAT FROM GREEN.LIST_PROCESSING.PMTA_LOG_SUMMARY_ACTIVE_HISTORICAL WHERE OFFERID IN ($offers) AND TIMELOGGED_DATE BETWEEN '$formatted_min_date' and '$formatted_max_date' and (BOUNCECAT='success' or DELIVEREDSTATUS='Hard Bounce')  ;" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   >$SPOOLPATH/delivered
+        $SF_STRING -q "SELECT DISTINCT TOADDRESS,TO_CHAR(TO_DATE(TIMELOGGED_DATE, 'YYYYMMDD'), 'YYYY-MM-DD') DEL_DATE,SUBID,BOUNCECAT FROM GREEN.LIST_PROCESSING.PMTA_LOG_SUMMARY_ACTIVE_HISTORICAL WHERE OFFERID IN ($offers) AND TIMELOGGED_DATE BETWEEN '$formatted_min_date' and '$formatted_max_date' and (BOUNCECAT='success' or DELIVEREDSTATUS='Hard Bounce') and  REGEXP_LIKE(listId, '^[0-9]+$') and type in ('d','b') ;" -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false  | tr ',' '|' | sed 's/"//g'   >$SPOOLPATH/delivered
 
 
         if [[ $? -ne 0 ]]
