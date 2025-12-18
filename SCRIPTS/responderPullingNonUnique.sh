@@ -259,7 +259,7 @@ fi
 
 #=== Green Unsubs ===#
 
-$SF_STRING -q "select email,LASTUNSUBDATE,subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and LASTUNSUBDATE>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr '\t' '|' > $SPOOLPATH/unsubs
+$SF_STRING -q "select email,to_date(LASTUNSUBDATE),subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr '\t' '|' > $SPOOLPATH/unsubs
 
 if [[ $? -ne 0 ]]
 then
