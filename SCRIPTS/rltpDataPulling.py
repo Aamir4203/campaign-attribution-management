@@ -65,9 +65,9 @@ def main(args):
         if deciles_ == "True":
             de = qr.split(",")[4].strip().split(" ")[0]
             if not re.findall("where", qr):
-                qr = f"{qr} where {de}='{client}' "
+                qr = f"{qr} where {de}='{client}' order by random() "
             else:
-                qr = f"{qr} and {de}='{client}' "
+                qr = f"{qr} and {de}='{client}' order by random() "
         dstart_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logger.info(f"RLTP Data pulling started for decile {client} at : {dstart_time}")
 
