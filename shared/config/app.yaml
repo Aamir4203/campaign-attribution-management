@@ -9,14 +9,60 @@ database:
   username: "datateam"
   password: "Datat3amSU!"
   tables:
-    clients: "apt_custom_client_info_table_dnd"
-    requests: "apt_custom_postback_request_details_dnd_test"
-    qa_stats: "apt_custom_postback_qa_table_dnd"
+    clients: "APT_CUSTOM_CLIENT_INFO_TABLE_DND"
+    requests: "APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND_TEST"
+    qa_stats: "APT_CUSTOM_POSTBACK_QA_TABLE_DND"
+    tracking: "APT_CUSTOM_REQUEST_PROCESS_TRACKING_DND"
+    hards: "APT_CUSTOM_EOS_INVALIDS_DND"
+    unsubs: "APT_CUSTOM_UNSUB_DETAILS_DND"
+    old_ips: "APT_CUSTOM_VERIZON_IPS_USED_DND"
+    new_ips: "APT_CUSTOM_VERIZON_NEW_IPS_DND"
+    delivered: "apt_custom_partitioned_delivered_data_impala"
     users: "apt_custom_apt_tool_user_details_dnd"
   pools:
     min_size: 5
     max_size: 20
     timeout: 30000
+
+# External Database Connections (for backend processing)
+external_databases:
+  snowflake:
+    connection_string: "snowsql -c datateam1"
+  presto:
+    host: "zdl3-mn03.bo3.e-dialog.com"
+    port: 8081
+    connection_string: "presto --server zdl3-mn03.bo3.e-dialog.com:8081 --session query_max_execution_time=3.00h --catalog hive --schema zx_tenant_database --user zx_tenant"
+  impala:
+    host: "10.100.76.250"
+    port: 21001
+    connection_string: "impala-shell -i 10.100.76.250:21001 -u zx_tenant -d zx_tenant --protocol=beeswax -Q EXEC_TIME_LIMIT_S=7200 --quiet"
+  pgdb2:
+    host: "zds-prod-pgdb02-01.bo3.e-dialog.com"
+    database: "arcamax_db"
+    connection_string: "psql -U datateam -h zds-prod-pgdb02-01.bo3.e-dialog.com -d arcamax_db"
+  orange:
+    host: "cmprep-prod-ro-02-vip.bo3.e-dialog.com"
+    database: "mt2_data"
+    username: "cmp_cust_user"
+    password: "Cmp12cst01!!"
+    connection_string: "mysql mt2_data -h cmprep-prod-ro-02-vip.bo3.e-dialog.com -u cmp_cust_user -pCmp12cst01!!"
+
+# File System Paths (Unix environment paths for backend processing)
+file_paths:
+  main_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB"
+  main_scripts: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
+  home_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING"
+  files_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/FILES/"
+  spool_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/SPOOL/"
+  script_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/SCRIPTS/"
+  log_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/LOGS/"
+  backup_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/PURGED_DATA"
+  tracking_helper: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/trackingHelper.sh"
+
+# Alert Configuration
+alerts:
+  email_recipients: "akhan@aptroid.com,datateam@aptroid.com"
+  sender: "attributionalerts@zds-db3-02.bo3.e-dialog.com"
 
 # Application Constants
 constants:
@@ -37,6 +83,18 @@ constants:
     maxUploadSize: 104857600  # 100MB
     allowedTypes: [".csv", ".xlsx", ".txt"]
     uploadPath: "/uploads"
+  upload:
+    max_size_mb: 50
+    allowed_extensions: ["csv", "xlsx", "xls"]
+    base_path: "REPORT_FILES"
+    validation:
+      immediate: true
+      csv_delimiter: "|"
+    naming:
+      timestamp_prefix: "TimeStampReport"
+      cpm_prefix: "CPM_Report"
+      decile_prefix: "Decile_Report"
+      format: "{prefix}_{client_name}_{week_name}.csv"
   modules:
     1: "trt"
     2: "logs"

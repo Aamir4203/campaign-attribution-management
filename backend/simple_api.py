@@ -44,6 +44,28 @@ CORS(app,
 # Get database configuration
 DB_CONFIG = config.get_database_credentials()
 
+# Utility functions for configuration-based operations
+def get_external_db_connection_string(db_type):
+    """Get external database connection string from configuration"""
+    return config.get_external_db_config(db_type).get('connection_string', '')
+
+def get_file_path(path_type, **kwargs):
+    """Get file path from configuration with optional formatting"""
+    return config.get_file_path(path_type, **kwargs)
+
+def get_alert_recipients():
+    """Get alert email recipients from configuration"""
+    return config.get_alerts_config().get('email_recipients', '').split(',')
+
+def get_upload_config():
+    """Get upload configuration settings"""
+    return config.get_upload_config()
+
+def validate_request_status(status):
+    """Validate request status against configured valid statuses"""
+    valid_statuses = config.get_request_constants().get('validStatuses', ['P', 'C', 'E', 'RW', 'RE'])
+    return status in valid_statuses
+
 def get_db_connection():
     """Get database connection with timeout - non-blocking for Flask startup"""
     try:
@@ -987,9 +1009,14 @@ def session_info():
 def get_requests():
     """Get all requests with pagination and search - Phase 3"""
     try:
+        # Get pagination config
+        pagination_config = config.get_app_constants().get('pagination', {})
+        default_page_size = pagination_config.get('defaultPageSize', 50)
+        max_page_size = pagination_config.get('maxPageSize', 500)
+
         # Get query parameters
         page = int(request.args.get('page', 1))
-        limit = int(request.args.get('limit', 50))
+        limit = min(int(request.args.get('limit', default_page_size)), max_page_size)
         search_term = request.args.get('search', '').strip()
 
         offset = (page - 1) * limit
@@ -1663,10 +1690,12 @@ def get_client_name(request_id):
         cursor = conn.cursor()
 
         # Query based on config.properties CLIENT_NAME logic
-        query = """
+        clients_table = config.get_table_name('clients')
+        requests_table = config.get_table_name('requests')
+        query = f"""
         SELECT UPPER(client_name) 
-        FROM APT_CUSTOM_CLIENT_INFO_TABLE_DND a 
-        JOIN APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND b ON a.client_id = b.client_id 
+        FROM {clients_table} a 
+        JOIN {requests_table} b ON a.client_id = b.client_id 
         WHERE request_id = %s
         """
 
@@ -1701,9 +1730,10 @@ def get_week(request_id):
         cursor = conn.cursor()
 
         # Query based on config.properties WEEK logic
-        query = """
+        requests_table = config.get_table_name('requests')
+        query = f"""
         SELECT UPPER(week) 
-        FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND 
+        FROM {requests_table} 
         WHERE request_id = %s
         """
 
