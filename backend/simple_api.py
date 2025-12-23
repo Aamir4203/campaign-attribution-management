@@ -12,6 +12,9 @@ import time
 import os
 from datetime import datetime, timedelta
 from config.config import get_config
+from services.file_validation_service import FileValidationService
+from services.upload_service import UploadService
+from utils.file_utils import FileUtils
 
 # Load configuration
 config = get_config()
@@ -43,6 +46,10 @@ CORS(app,
 
 # Get database configuration
 DB_CONFIG = config.get_database_credentials()
+
+# Initialize file services
+file_validator = FileValidationService(config)
+upload_service = UploadService(config)
 
 # Utility functions for configuration-based operations
 def get_external_db_connection_string(db_type):
@@ -1621,21 +1628,187 @@ def download_request(request_id):
         'error': 'Download functionality not yet implemented'
     }), 501
 
+@app.route('/api/upload/validate', methods=['POST'])
+def validate_file_upload():
+    """Real-time file validation endpoint"""
+    try:
+        # Check if feature is enabled
+        if not config.is_feature_enabled('file_upload_enabled'):
+            return jsonify({
+                'success': False,
+                'error': 'File upload feature is not enabled'
+            }), 403
+
+        # Validate request
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided'
+            }), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected'
+            }), 400
+
+        # Get file type and parameters
+        file_type = request.form.get('file_type')
+        client_name = request.form.get('client_name', '')
+        week_name = request.form.get('week_name', '')
+
+        if not file_type:
+            return jsonify({
+                'success': False,
+                'error': 'File type is required'
+            }), 400
+
+        if file_type not in ['timestamp', 'cpm', 'decile']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid file type. Must be: timestamp, cpm, or decile'
+            }), 400
+
+        # Read file content
+        file_content = file.read()
+        filename = file.filename
+
+        # Normalize file content (convert Excel to CSV if needed)
+        try:
+            normalized_content = FileUtils.normalize_file_content(file_content, filename, '|')
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'File format error: {str(e)}'
+            }), 400
+
+        # Validate file
+        validation_result = file_validator.validate_file(normalized_content, filename, file_type)
+
+        # Add expected filename info
+        if client_name and week_name:
+            expected_filename = upload_service.generate_filename(file_type, client_name, week_name)
+            validation_result['expected_filename'] = expected_filename
+            validation_result['file_exists'] = upload_service.file_exists(file_type, client_name, week_name)
+
+        logger.info(f"File validation completed for {filename}: {'VALID' if validation_result['valid'] else 'INVALID'}")
+
+        return jsonify({
+            'success': True,
+            'validation': validation_result
+        })
+
+    except Exception as e:
+        logger.error(f"Error in file validation: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Validation error: {str(e)}'
+        }), 500
+
+@app.route('/api/upload/save', methods=['POST'])
+def save_uploaded_file():
+    """Save validated file to storage"""
+    try:
+        # Check if feature is enabled
+        if not config.is_feature_enabled('file_upload_enabled'):
+            return jsonify({
+                'success': False,
+                'error': 'File upload feature is not enabled'
+            }), 403
+
+        # Validate request
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided'
+            }), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected'
+            }), 400
+
+        # Get required parameters
+        file_type = request.form.get('file_type')
+        client_name = request.form.get('client_name', '')
+        week_name = request.form.get('week_name', '')
+
+        if not all([file_type, client_name, week_name]):
+            return jsonify({
+                'success': False,
+                'error': 'file_type, client_name, and week_name are required'
+            }), 400
+
+        # Read and normalize file content
+        file_content = file.read()
+        filename = file.filename
+
+        try:
+            normalized_content = FileUtils.normalize_file_content(file_content, filename, '|')
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'File format error: {str(e)}'
+            }), 400
+
+        # Validate file first (if realtime validation is enabled)
+        if config.is_feature_enabled('realtime_validation'):
+            validation_result = file_validator.validate_file(normalized_content, filename, file_type)
+            if not validation_result['valid']:
+                return jsonify({
+                    'success': False,
+                    'error': 'File validation failed',
+                    'validation': validation_result
+                }), 400
+
+        # Save file
+        save_result = upload_service.save_file(normalized_content, file_type, client_name, week_name, filename)
+
+        if not save_result['success']:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to save file',
+                'details': save_result['errors']
+            }), 500
+
+        logger.info(f"File saved successfully: {save_result['file_path']}")
+
+        return jsonify({
+            'success': True,
+            'file_path': save_result['absolute_path'],
+            'filename': save_result['filename'],
+            'file_info': save_result.get('file_info', {})
+        })
+
+    except Exception as e:
+        logger.error(f"Error saving file: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Upload error: {str(e)}'
+        }), 500
+
 @app.route('/api/requests/<int:request_id>/upload', methods=['POST'])
 def upload_request_file(request_id):
-    """Upload files for a request - placeholder implementation"""
+    """Upload files for a request - enhanced implementation"""
     logger.info(f"📤 Upload request endpoint called for ID: {request_id}")
 
-    # This is a placeholder - in a real implementation, you would:
-    # 1. Check if request exists
-    # 2. Validate the uploaded file
-    # 3. Store the file in the appropriate location
-    # 4. Update the request status if needed
+    try:
+        # Legacy endpoint - redirect to new upload flow
+        return jsonify({
+            'success': False,
+            'error': 'Please use /api/upload/save endpoint for file uploads',
+            'redirect': '/api/upload/save'
+        }), 400
 
-    return jsonify({
-        'success': False,
-        'error': 'Upload functionality not yet implemented'
-    }), 501
+    except Exception as e:
+        logger.error(f"Error in request upload: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/requests/status-counts', methods=['GET'])
 def get_status_counts():

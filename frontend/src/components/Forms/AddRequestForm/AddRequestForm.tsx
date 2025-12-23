@@ -8,6 +8,7 @@ import { useAuth } from '../../Auth';
 import FlushDeliveryDataModal from '../../Modal/FlushDeliveryDataModal';
 import SuccessModal from '../../Modal/SuccessModal';
 import ErrorModal from '../../Modal/ErrorModal';
+import HybridFileInput from '../../HybridFileInput/HybridFileInput';
 
 // Simple AlertModal component
 const AlertModal: React.FC<{
@@ -878,18 +879,17 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                 {/* TimeStamp Path Input */}
                 {showTimeStampPath && (
                   <div className="w-96">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      TimeStamp File Path *
-                    </label>
-                    <input
-                      type="text"
-                      {...register('timeStampPath')}
-                      className="w-80 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+                    <HybridFileInput
+                      label="TimeStamp File Path *"
                       placeholder="Enter timestamp file path"
+                      value={watch('timeStampPath') || ''}
+                      onChange={(value) => setValue('timeStampPath', value)}
+                      fileType="timestamp"
+                      clientName={watch('clientName') || ''}
+                      weekName={watch('week') || ''}
+                      error={errors.timeStampPath?.message}
+                      className="w-80"
                     />
-                    {errors.timeStampPath && (
-                      <p className="mt-1 text-xs text-red-600">{errors.timeStampPath.message}</p>
-                    )}
                   </div>
                 )}
               </div>
@@ -924,33 +924,31 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
             <div className="px-4 pb-4 border-t border-gray-100">
               <div className="flex gap-3 mt-3 items-start">
                 <div className="flex-shrink-0 w-80">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    CPM Report Path *
-                  </label>
-                  <input
-                    type="text"
-                    {...register('reportpath')}
-                    className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                  <HybridFileInput
+                    label="CPM Report Path *"
                     placeholder="Enter CPM report path"
+                    value={watch('reportpath') || ''}
+                    onChange={(value) => setValue('reportpath', value)}
+                    fileType="cpm"
+                    clientName={watch('clientName') || ''}
+                    weekName={watch('week') || ''}
+                    error={errors.reportpath?.message}
+                    className="w-80"
                   />
-                  {errors.reportpath && (
-                    <p className="mt-1 text-xs text-red-600">{errors.reportpath.message}</p>
-                  )}
                 </div>
 
                 <div className="flex-shrink-0 w-80">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Decile Report Path *
-                  </label>
-                  <input
-                    type="text"
-                    {...register('qspath')}
-                    className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                  <HybridFileInput
+                    label="Decile Report Path *"
                     placeholder="Enter decile report path"
+                    value={watch('qspath') || ''}
+                    onChange={(value) => setValue('qspath', value)}
+                    fileType="decile"
+                    clientName={watch('clientName') || ''}
+                    weekName={watch('week') || ''}
+                    error={errors.qspath?.message}
+                    className="w-80"
                   />
-                  {errors.qspath && (
-                    <p className="mt-1 text-xs text-red-600">{errors.qspath.message}</p>
-                  )}
                 </div>
               </div>
             </div>

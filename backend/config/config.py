@@ -144,6 +144,14 @@ class ConfigManager:
         """Get file upload configuration"""
         return self._config.get('constants', {}).get('upload', {})
 
+    def get_features(self) -> Dict[str, bool]:
+        """Get feature flag configuration"""
+        return self._config.get('features', {})
+
+    def is_feature_enabled(self, feature_name: str) -> bool:
+        """Check if a feature is enabled"""
+        return self.get_features().get(feature_name, False)
+
     def get_app_constants(self) -> Dict[str, Any]:
         """Get application constants"""
         return self._config.get('constants', {})

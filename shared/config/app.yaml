@@ -183,6 +183,12 @@ logging:
   level: "DEBUG"
   format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
+# Feature Flags
+features:
+  file_upload_enabled: true
+  hybrid_input_mode: true
+  realtime_validation: true
+
 # Frontend Configuration
 frontend:
   development:
