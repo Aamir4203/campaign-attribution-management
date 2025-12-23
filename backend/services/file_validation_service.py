@@ -159,9 +159,22 @@ class FileValidationService:
 
             # Additional validations
             if validation_result['valid']:
-                # Check Subject Line format
-                if df["Subject Line"].str.contains("'").any() and not df["Subject Line"].str.contains("''").any():
-                    validation_result['warnings'].append("Subject lines contain single quotes - will be escaped during processing")
+                # Enhanced apostrophe validation for PostgreSQL compatibility
+                text_columns = ["Campaign", "Subject Line", "Creative"]
+                apostrophe_issues = []
+
+                for col in text_columns:
+                    if col in df.columns:
+                        # Count single apostrophes (not already escaped double apostrophes)
+                        single_quotes = df[col].astype(str).str.contains("'", regex=False, na=False)
+                        already_escaped = df[col].astype(str).str.contains("''", regex=False, na=False)
+
+                        unescaped_count = single_quotes.sum() - already_escaped.sum()
+                        if unescaped_count > 0:
+                            apostrophe_issues.append(f"{col} ({unescaped_count} rows)")
+
+                if apostrophe_issues:
+                    validation_result['warnings'].append(f"Single quotes detected in: {', '.join(apostrophe_issues)}. These will be automatically converted to double quotes ('') for PostgreSQL compatibility.")
 
                 # Get date range
                 try:
@@ -325,7 +338,39 @@ class FileValidationService:
 
             # Validate timestamp date consistency (first 3 columns should be date-related)
             try:
-                # Convert first 3 columns to datetime
+                # First column validation: must be YYYY-MM-DD format
+                col1_values = df.iloc[:, 0].astype(str)
+                date_pattern = r'^\d{4}-\d{2}-\d{2}$'
+
+                invalid_col1_dates = ~col1_values.str.match(date_pattern, na=False)
+                if invalid_col1_dates.any():
+                    invalid_count = invalid_col1_dates.sum()
+                    validation_result['valid'] = False
+                    validation_result['errors'].append(f"Column 1 must be in YYYY-MM-DD format. Found {invalid_count} invalid dates.")
+                    return validation_result
+
+                # Columns 2 and 3 validation: must be YYYY-MM-DD hh:mm:ss format
+                datetime_pattern = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
+
+                if len(df.columns) >= 2:
+                    col2_values = df.iloc[:, 1].astype(str)
+                    invalid_col2_datetime = ~col2_values.str.match(datetime_pattern, na=False)
+                    if invalid_col2_datetime.any():
+                        invalid_count = invalid_col2_datetime.sum()
+                        validation_result['valid'] = False
+                        validation_result['errors'].append(f"Column 2 (starttime) must be in YYYY-MM-DD hh:mm:ss format. Found {invalid_count} invalid timestamps.")
+                        return validation_result
+
+                if len(df.columns) >= 3:
+                    col3_values = df.iloc[:, 2].astype(str)
+                    invalid_col3_datetime = ~col3_values.str.match(datetime_pattern, na=False)
+                    if invalid_col3_datetime.any():
+                        invalid_count = invalid_col3_datetime.sum()
+                        validation_result['valid'] = False
+                        validation_result['errors'].append(f"Column 3 (endtime) must be in YYYY-MM-DD hh:mm:ss format. Found {invalid_count} invalid timestamps.")
+                        return validation_result
+
+                # Now validate the parsed dates for consistency
                 col1_dates = pd.to_datetime(df.iloc[:, 0])
                 col2_dates = pd.to_datetime(df.iloc[:, 1])
                 col3_dates = pd.to_datetime(df.iloc[:, 2])
@@ -338,13 +383,14 @@ class FileValidationService:
 
                 if not dates_match:
                     validation_result['valid'] = False
-                    validation_result['errors'].append("Timestamp dates across first 3 columns do not match")
+                    validation_result['errors'].append("Date consistency failed: dates across first 3 columns do not match")
                 else:
                     validation_result['file_info']['date_validation'] = 'passed'
+                    validation_result['file_info']['format_validation'] = 'passed'
 
             except Exception as date_error:
                 validation_result['valid'] = False
-                validation_result['errors'].append(f"Date validation failed: first 3 columns should contain valid dates")
+                validation_result['errors'].append(f"Timestamp format validation failed: {str(date_error)}")
 
             # Improved timestamp-related column name detection
             column_names = [col.lower().replace(' ', '').replace('_', '') for col in df.columns]
@@ -399,3 +445,144 @@ class FileValidationService:
                 'warnings': [],
                 'file_info': {}
             }
+
+    def cross_validate_files(self, files_data: Dict[str, bytes], filenames: Dict[str, str]) -> Dict[str, Any]:
+        """
+        Perform cross-validation between multiple uploaded files.
+
+        Args:
+            files_data: Dict with keys 'cpm', 'decile', 'timestamp' and file content as values
+            filenames: Dict with keys 'cpm', 'decile', 'timestamp' and filenames as values
+
+        Returns:
+            Dict with cross-validation results
+        """
+        cross_validation_result = {
+            'valid': True,
+            'errors': [],
+            'warnings': [],
+            'validations_performed': []
+        }
+
+        try:
+            # Parse available files
+            parsed_files = {}
+
+            for file_type, content in files_data.items():
+                if content:
+                    try:
+                        content_str = content.decode('utf-8')
+
+                        if file_type == 'cpm':
+                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
+                            if len(df.columns) >= 14:
+                                df.columns = [
+                                    "Campaign", "Date", "Delivered", "Unique Opens", "Clicks",
+                                    "Unsubs", "sb", "hb", "Subject Line", "Creative",
+                                    "Creative ID", "Offer ID", "segment", "sub_seg"
+                                ]
+                                parsed_files['cpm'] = df
+
+                        elif file_type == 'decile':
+                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
+                            if len(df.columns) >= 8:
+                                df.columns = [
+                                    "Delivered", "Opens", "clicks", "unsubs",
+                                    "segment", "sub_seg", "decile", "old_delivered_per"
+                                ]
+                                parsed_files['decile'] = df
+
+                        elif file_type == 'timestamp':
+                            # Auto-detect delimiter for timestamp files
+                            sample_lines = content_str.split('\n')[:3]
+                            sample_text = '\n'.join(sample_lines)
+
+                            delimiters = ['\t', '|', ',', ';']
+                            detected_delimiter = '\t'
+                            max_columns = 0
+
+                            for delimiter in delimiters:
+                                try:
+                                    df_test = pd.read_csv(io.StringIO(sample_text), sep=delimiter, header=0, nrows=1)
+                                    if len(df_test.columns) > max_columns:
+                                        max_columns = len(df_test.columns)
+                                        detected_delimiter = delimiter
+                                except:
+                                    continue
+
+                            df = pd.read_csv(io.StringIO(content_str), sep=detected_delimiter, header=0)
+                            parsed_files['timestamp'] = df
+
+                    except Exception as e:
+                        cross_validation_result['warnings'].append(f"Could not parse {file_type} file for cross-validation: {str(e)}")
+
+            # Cross-validation 1: CPM and Decile segment/sub_seg matching
+            if 'cpm' in parsed_files and 'decile' in parsed_files:
+                cross_validation_result['validations_performed'].append('CPM-Decile Segment Matching')
+
+                cpm_df = parsed_files['cpm']
+                decile_df = parsed_files['decile']
+
+                try:
+                    # Check segment matching
+                    cpm_segments = cpm_df["segment"].drop_duplicates().sort_values().reset_index(drop=True)
+                    decile_segments = decile_df["segment"].drop_duplicates().sort_values().reset_index(drop=True)
+
+                    segments_match = (cpm_segments == decile_segments).all() if len(cpm_segments) == len(decile_segments) else False
+
+                    # Check sub_seg matching
+                    cpm_subseg = cpm_df["sub_seg"].drop_duplicates().sort_values().reset_index(drop=True)
+                    decile_subseg = decile_df["sub_seg"].drop_duplicates().sort_values().reset_index(drop=True)
+
+                    subseg_match = (cpm_subseg == decile_subseg).all() if len(cpm_subseg) == len(decile_subseg) else False
+
+                    if not (segments_match and subseg_match):
+                        cross_validation_result['valid'] = False
+                        cross_validation_result['errors'].append("Segments and sub-segments between CPM and Decile reports do not match")
+
+                except Exception as e:
+                    cross_validation_result['warnings'].append(f"Could not validate segment matching: {str(e)}")
+
+            # Cross-validation 2: Timestamp first column dates vs CPM report dates
+            if 'timestamp' in parsed_files and 'cpm' in parsed_files:
+                cross_validation_result['validations_performed'].append('Timestamp-CPM Date Matching')
+
+                timestamp_df = parsed_files['timestamp']
+                cpm_df = parsed_files['cpm']
+
+                try:
+                    # Get timestamp dates (first column)
+                    timestamp_dates = pd.to_datetime(timestamp_df.iloc[:, 0]).dt.date
+                    timestamp_date_range = {
+                        'min': timestamp_dates.min(),
+                        'max': timestamp_dates.max()
+                    }
+
+                    # Get CPM report dates
+                    cmp_dates = pd.to_datetime(cpm_df["Date"]).dt.date
+                    cpm_date_range = {
+                        'min': cmp_dates.min(),
+                        'max': cmp_dates.max()
+                    }
+
+                    # Check if date ranges overlap or are compatible
+                    dates_compatible = (
+                        timestamp_date_range['min'] <= cpm_date_range['max'] and
+                        timestamp_date_range['max'] >= cpm_date_range['min']
+                    )
+
+                    if not dates_compatible:
+                        cross_validation_result['valid'] = False
+                        cross_validation_result['errors'].append(
+                            f"Timestamp date range ({timestamp_date_range['min']} to {timestamp_date_range['max']}) "
+                            f"does not overlap with CPM report date range ({cpm_date_range['min']} to {cpm_date_range['max']})"
+                        )
+
+                except Exception as e:
+                    cross_validation_result['warnings'].append(f"Could not validate date matching: {str(e)}")
+
+        except Exception as e:
+            logger.error(f"Error in cross-validation: {e}")
+            cross_validation_result['warnings'].append(f"Cross-validation error: {str(e)}")
+
+        return cross_validation_result

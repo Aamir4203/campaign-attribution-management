@@ -1810,6 +1810,67 @@ def upload_request_file(request_id):
             'error': str(e)
         }), 500
 
+@app.route('/api/upload/cross-validate', methods=['POST'])
+def cross_validate_files():
+    """Cross-validate multiple uploaded files"""
+    try:
+        # Check if feature is enabled
+        if not config.is_feature_enabled('file_upload_enabled'):
+            return jsonify({
+                'success': False,
+                'error': 'File upload feature is not enabled'
+            }), 403
+
+        # Get uploaded files
+        files_data = {}
+        filenames = {}
+
+        # Check for each file type
+        for file_type in ['cpm', 'decile', 'timestamp']:
+            if file_type in request.files:
+                file = request.files[file_type]
+                if file and file.filename:
+                    files_data[file_type] = file.read()
+                    filenames[file_type] = file.filename
+
+        # Also check for file paths if files are already uploaded
+        client_name = request.form.get('client_name', '')
+        week_name = request.form.get('week_name', '')
+
+        # Read from uploaded files if paths are provided
+        for file_type in ['cpm', 'decile', 'timestamp']:
+            file_path = request.form.get(f'{file_type}_path')
+            if file_path and file_type not in files_data:
+                try:
+                    with open(file_path, 'rb') as f:
+                        files_data[file_type] = f.read()
+                        filenames[file_type] = file_path.split('/')[-1]
+                except Exception as e:
+                    logger.warning(f"Could not read {file_type} file from path {file_path}: {e}")
+
+        if not files_data:
+            return jsonify({
+                'success': False,
+                'error': 'No files provided for cross-validation'
+            }), 400
+
+        # Perform cross-validation
+        cross_validation_result = file_validator.cross_validate_files(files_data, filenames)
+
+        logger.info(f"Cross-validation completed with {len(cross_validation_result['validations_performed'])} validations")
+
+        return jsonify({
+            'success': True,
+            'cross_validation': cross_validation_result
+        })
+
+    except Exception as e:
+        logger.error(f"Error in cross-validation: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Cross-validation error: {str(e)}'
+        }), 500
+
 @app.route('/api/requests/status-counts', methods=['GET'])
 def get_status_counts():
     """Get count of requests by status for dashboard"""

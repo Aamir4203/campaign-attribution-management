@@ -90,6 +90,8 @@ constants:
     validation:
       immediate: true
       csv_delimiter: "|"
+      apostrophe_conversion: true  # Convert ' to '' for PostgreSQL compatibility
+      timestamp_format_strict: true  # Enforce YYYY-MM-DD and YYYY-MM-DD hh:mm:ss formats
     naming:
       timestamp_prefix: "TimeStampReport"
       cpm_prefix: "CPM_Report"

@@ -12,6 +12,7 @@ interface HybridFileInputProps {
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
+  onFileUploaded?: (filePath: string) => void; // New callback for when file is uploaded
   fileType?: 'timestamp' | 'cpm' | 'decile';
   clientName?: string;
   weekName?: string;
@@ -27,6 +28,7 @@ const HybridFileInput: React.FC<HybridFileInputProps> = ({
   placeholder,
   value,
   onChange,
+  onFileUploaded,
   fileType,
   clientName = '',
   weekName = '',
@@ -117,6 +119,10 @@ const HybridFileInput: React.FC<HybridFileInputProps> = ({
             onFileValidated={(filePath) => {
               onChange(filePath);
               setUploadError('');
+              // Notify parent that file was uploaded
+              if (onFileUploaded) {
+                onFileUploaded(filePath);
+              }
             }}
             onValidationError={(error) => {
               setUploadError(error);

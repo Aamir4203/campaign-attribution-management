@@ -104,6 +104,39 @@ class UploadService:
         cleaned = cleaned.strip('_')
         return cleaned
     
+    def _convert_apostrophes_for_postgres(self, content: bytes, file_type: str) -> bytes:
+        """
+        Convert single apostrophes to double apostrophes for PostgreSQL compatibility.
+
+        Args:
+            content: File content as bytes
+            file_type: Type of file being processed
+
+        Returns:
+            Content with apostrophes converted
+        """
+        try:
+            # Only process CPM reports for apostrophe conversion
+            if file_type != 'cpm':
+                return content
+
+            # Decode content
+            content_str = content.decode('utf-8')
+
+            # Convert single apostrophes to double apostrophes for PostgreSQL
+            # This prevents SQL insertion errors with single quotes
+            converted_content = content_str.replace("'", "''")
+
+            logger.info(f"Converted apostrophes for PostgreSQL compatibility in {file_type} file")
+
+            # Re-encode to bytes
+            return converted_content.encode('utf-8')
+
+        except Exception as e:
+            logger.error(f"Error converting apostrophes: {e}")
+            # Return original content if conversion fails
+            return content
+
     def save_file(self, file_content: bytes, file_type: str, client_name: str, week_name: str, original_filename: str = None) -> Dict[str, Any]:
         """
         Save uploaded file to storage with proper naming.
@@ -131,6 +164,9 @@ class UploadService:
             filename = self.generate_filename(file_type, client_name, week_name)
             result['filename'] = filename
             
+            # Convert apostrophes for PostgreSQL compatibility if needed
+            processed_content = self._convert_apostrophes_for_postgres(file_content, file_type)
+
             # Create full path
             file_path = Path(self.base_path) / filename
             result['file_path'] = str(file_path)
@@ -140,10 +176,10 @@ class UploadService:
             if file_path.exists():
                 logger.info(f"Overwriting existing file: {file_path}")
             
-            # Write file content
+            # Write processed file content
             with open(file_path, 'wb') as f:
-                f.write(file_content)
-            
+                f.write(processed_content)
+
             # Verify file was written
             if not file_path.exists():
                 raise Exception("File was not written successfully")

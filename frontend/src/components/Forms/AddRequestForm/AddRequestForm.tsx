@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { addRequestSchema, AddRequestFormData } from '../../../utils/validation';
@@ -9,6 +9,9 @@ import FlushDeliveryDataModal from '../../Modal/FlushDeliveryDataModal';
 import SuccessModal from '../../Modal/SuccessModal';
 import ErrorModal from '../../Modal/ErrorModal';
 import HybridFileInput from '../../HybridFileInput/HybridFileInput';
+// Temporarily disable cross-validation imports to isolate rendering issues
+// import CrossValidationDisplay from '../../CrossValidation/CrossValidationDisplay';
+// import { useCrossValidation } from '../../../hooks/useCrossValidation';
 
 // Simple AlertModal component
 const AlertModal: React.FC<{
@@ -147,10 +150,125 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
 
   const { register, handleSubmit, formState: { errors }, watch, setValue, setError, clearErrors } = form;
   const requestType = watch('requestType');
+
+  // Cross-validation hook TEMPORARILY DISABLED to isolate rendering issues
+  /*
+  const {
+    isValidating: isCrossValidating,
+    validationResult: crossValidationResult,
+    error: crossValidationError,
+    performCrossValidation,
+    resetValidation: resetCrossValidation,
+    shouldShowCrossValidation,
+    hasValidationResult: hasCrossValidationResult
+  } = useCrossValidation({
+    clientName: watch('clientName') || '',
+    weekName: watch('week') || '',
+    autoValidate: false, // DISABLE auto-validation to prevent infinite loops
+    onValidationComplete: (result) => {
+      if (!result.valid) {
+        console.warn('Cross-validation failed:', result.errors);
+      }
+    }
+  });
+  */
+
+  // Placeholder values for disabled cross-validation
+  const isCrossValidating = false;
+  const crossValidationResult = null;
+  const resetCrossValidation = () => {};
+  const performCrossValidation = async () => {};
+  const hasCrossValidationResult = false;
+
+  // Track uploaded files state to only validate when files are actually uploaded
+  const [uploadedFiles, setUploadedFiles] = useState({
+    cpm: false,
+    decile: false,
+    timestamp: false
+  });
+
+  // Watch file paths for changes (but don't auto-validate on every change)
+  const reportPath = watch('reportpath');
+  const qsPath = watch('qspath');
+  const timeStampPath = watch('timeStampPath');
+  const addTimeStamp = watch('addTimeStamp');
+
+  // Function to handle file upload completion and trigger validation
+  const handleFileUploaded = useCallback((fileType: 'cpm' | 'decile' | 'timestamp', filePath: string) => {
+    setUploadedFiles(prev => {
+      const newState = { ...prev, [fileType]: !!filePath };
+
+      // Count uploaded files (respecting timestamp checkbox)
+      const uploadCount = [
+        newState.cpm,
+        newState.decile,
+        addTimeStamp ? newState.timestamp : false
+      ].filter(Boolean).length;
+
+      // Only trigger validation if we have 2+ files uploaded
+      if (uploadCount >= 2) {
+        setTimeout(async () => {
+          try {
+            resetCrossValidation();
+
+            // Collect current file paths
+            const filePaths = {
+              cpm: reportPath || '',
+              decile: qsPath || '',
+              timestamp: addTimeStamp ? (timeStampPath || '') : ''
+            };
+
+            // Filter out empty paths
+            const validPaths = Object.fromEntries(
+              Object.entries(filePaths).filter(([_, path]) => path && path.trim() !== '')
+            );
+
+            if (Object.keys(validPaths).length >= 2) {
+              await performCrossValidation({}, validPaths);
+            }
+          } catch (error) {
+            console.error('Auto cross-validation error:', error);
+          }
+        }, 100); // Small delay to ensure state is updated
+      } else {
+        // Clear validation if insufficient files
+        resetCrossValidation();
+      }
+
+      return newState;
+    });
+  }, [addTimeStamp, resetCrossValidation, performCrossValidation, reportPath, qsPath, timeStampPath]);
+
+  // Reset file uploaded state when paths are cleared
+  useEffect(() => {
+    const newUploadedState = {
+      cpm: !!reportPath,
+      decile: !!qsPath,
+      timestamp: !!(addTimeStamp && timeStampPath)
+    };
+
+    setUploadedFiles(prev => {
+      const hasChanged = Object.keys(newUploadedState).some(
+        key => prev[key as keyof typeof prev] !== newUploadedState[key as keyof typeof newUploadedState]
+      );
+
+      if (hasChanged) {
+        // If files were removed, clear validation
+        const uploadCount = Object.values(newUploadedState).filter(Boolean).length;
+        if (uploadCount < 2) {
+          resetCrossValidation();
+        }
+        return newUploadedState;
+      }
+
+      return prev;
+    });
+  }, [reportPath, qsPath, timeStampPath, addTimeStamp, resetCrossValidation]);
+
+  // Other form watches
   const clientSuppression = watch('clientSuppression');
   const requestIdSuppression = watch('requestIdSuppression');
   const priorityFile = watch('priorityFile');
-  const addTimeStamp = watch('addTimeStamp');
   const endDate = watch('endDate');
   const residualStart = watch('residualStart');
   const weekValue = watch('week');
@@ -479,6 +597,45 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     setWeekTriggerPending(false);
   };
 
+  const handleCrossValidation = async () => {
+    try {
+      resetCrossValidation();
+
+      // Collect file paths from form (respect timestamp checkbox)
+      const filePaths = {
+        cpm: watch('reportpath') || '',
+        decile: watch('qspath') || '',
+        timestamp: addTimeStamp ? (watch('timeStampPath') || '') : '' // Only include if checkbox is checked
+      };
+
+      // Filter out empty paths
+      const validPaths = Object.fromEntries(
+        Object.entries(filePaths).filter(([_, path]) => path && path.trim() !== '')
+      );
+
+      if (Object.keys(validPaths).length < 2) {
+        alert('Please upload at least 2 files to perform cross-validation');
+        return;
+      }
+
+      await performCrossValidation({}, validPaths);
+
+    } catch (error) {
+      console.error('Cross-validation error:', error);
+    }
+  };
+
+  const shouldRunCrossValidation = () => {
+    // Count actually uploaded files (not just paths)
+    const uploadCount = [
+      uploadedFiles.cpm,
+      uploadedFiles.decile,
+      addTimeStamp ? uploadedFiles.timestamp : false
+    ].filter(Boolean).length;
+
+    return uploadCount >= 2;
+  };
+
   const onSubmit = async (data: AddRequestFormData) => {
     try {
       setSubmitting(true);
@@ -765,8 +922,9 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                   <label className="block text-xs font-medium text-gray-700 mb-1">
                     Week *
                     {weekTriggerPending && (
-                      <span className="ml-2 text-xs text-red-600 animate-pulse">
-                        ⏱️ Detecting cycle...
+                      <span className="ml-2 text-xs text-blue-600 flex items-center">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-1"></div>
+                        Checking cycle...
                       </span>
                     )}
                   </label>
@@ -775,7 +933,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                     {...register('week')}
                     className={`w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 text-sm ${
                       weekTriggerPending
-                        ? 'border-red-300 focus:ring-red-500 bg-red-50'
+                        ? 'border-blue-300 focus:ring-blue-500 bg-blue-50'
                         : 'border-gray-300 focus:ring-green-500'
                     }`}
                     placeholder="e.g., Q4_W8"
@@ -784,9 +942,10 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                     <p className="mt-1 text-xs text-red-600">{errors.week.message}</p>
                   )}
                   {weekTriggerPending && (
-                    <p className="mt-1 text-xs text-red-600">
-                      W1/W2 detected - checking for new cycle...
-                    </p>
+                    <div className="mt-1 text-xs text-blue-600 flex items-center">
+                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-1"></div>
+                      W1/W2 detected - validating new cycle
+                    </div>
                   )}
                 </div>
               </div>
@@ -884,6 +1043,8 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                       placeholder="Enter timestamp file path"
                       value={watch('timeStampPath') || ''}
                       onChange={(value) => setValue('timeStampPath', value)}
+                      onFileUploaded={undefined} // Temporarily disabled
+                      // onFileUploaded={(filePath) => handleFileUploaded('timestamp', filePath)}
                       fileType="timestamp"
                       clientName={watch('clientName') || ''}
                       weekName={watch('week') || ''}
@@ -929,6 +1090,8 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                     placeholder="Enter CPM report path"
                     value={watch('reportpath') || ''}
                     onChange={(value) => setValue('reportpath', value)}
+                    onFileUploaded={undefined} // Temporarily disabled
+                    // onFileUploaded={(filePath) => handleFileUploaded('cpm', filePath)}
                     fileType="cpm"
                     clientName={watch('clientName') || ''}
                     weekName={watch('week') || ''}
@@ -943,6 +1106,8 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                     placeholder="Enter decile report path"
                     value={watch('qspath') || ''}
                     onChange={(value) => setValue('qspath', value)}
+                    onFileUploaded={undefined} // Temporarily disabled
+                    // onFileUploaded={(filePath) => handleFileUploaded('decile', filePath)}
                     fileType="decile"
                     clientName={watch('clientName') || ''}
                     weekName={watch('week') || ''}
@@ -954,6 +1119,66 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
             </div>
           )}
         </div>
+
+        {/* Section 4.5: Cross-Validation - TEMPORARILY DISABLED */}
+        {/*
+        {shouldRunCrossValidation() && (
+          <div className="bg-white border border-gray-200 rounded shadow-sm">
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="text-indigo-600 font-semibold text-sm">📋</span>
+                  <h3 className="text-sm font-medium text-gray-800">File Cross-Validation</h3>
+                  {isCrossValidating && (
+                    <div className="flex items-center space-x-1">
+                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-indigo-600"></div>
+                      <span className="text-xs text-indigo-600">Validating...</span>
+                    </div>
+                  )}
+                  {crossValidationResult?.valid && !isCrossValidating && (
+                    <span className="text-green-600 text-xs">✓ Valid</span>
+                  )}
+                  {crossValidationResult && !crossValidationResult.valid && !isCrossValidating && (
+                    <span className="text-red-600 text-xs">✗ Failed</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCrossValidation}
+                  disabled={isCrossValidating}
+                  className="px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                  title="Manually re-run validation"
+                >
+                  {isCrossValidating ? 'Validating...' : 'Re-validate'}
+                </button>
+              </div>
+            </div>
+
+            <div className="px-4 py-3">
+              <CrossValidationDisplay
+                isValidating={isCrossValidating}
+                validationResult={crossValidationResult}
+                className="w-full"
+              />
+
+              {!hasCrossValidationResult && !isCrossValidating && (
+                <div className="text-xs text-gray-500 mt-2">
+                  <p>✨ Cross-validation runs automatically when you upload 2+ files:</p>
+                  <ul className="mt-1 space-y-1 ml-4">
+                    <li>• CPM & Decile Reports: Segment and sub-segment matching</li>
+                    <li>• Timestamp & CPM Reports: Date range compatibility</li>
+                  </ul>
+                  <p className="mt-2 text-xs text-blue-600">
+                    📋 Current uploaded files: CPM({uploadedFiles.cpm ? '✓' : '✗'}),
+                    Decile({uploadedFiles.decile ? '✓' : '✗'})
+                    {addTimeStamp && `, Timestamp(${uploadedFiles.timestamp ? '✓' : '✗'})`}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        */}
 
         {/* Section 5: Suppression List */}
         <div className="bg-white border border-gray-200 rounded shadow-sm">
