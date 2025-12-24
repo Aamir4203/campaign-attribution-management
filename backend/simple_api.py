@@ -12,6 +12,9 @@ import time
 import os
 from datetime import datetime, timedelta
 from config.config import get_config
+from services.file_validation_service import FileValidationService
+from services.upload_service import UploadService
+from utils.file_utils import FileUtils
 
 # Load configuration
 config = get_config()
@@ -43,6 +46,32 @@ CORS(app,
 
 # Get database configuration
 DB_CONFIG = config.get_database_credentials()
+
+# Initialize file services
+file_validator = FileValidationService(config)
+upload_service = UploadService(config)
+
+# Utility functions for configuration-based operations
+def get_external_db_connection_string(db_type):
+    """Get external database connection string from configuration"""
+    return config.get_external_db_config(db_type).get('connection_string', '')
+
+def get_file_path(path_type, **kwargs):
+    """Get file path from configuration with optional formatting"""
+    return config.get_file_path(path_type, **kwargs)
+
+def get_alert_recipients():
+    """Get alert email recipients from configuration"""
+    return config.get_alerts_config().get('email_recipients', '').split(',')
+
+def get_upload_config():
+    """Get upload configuration settings"""
+    return config.get_upload_config()
+
+def validate_request_status(status):
+    """Validate request status against configured valid statuses"""
+    valid_statuses = config.get_request_constants().get('validStatuses', ['P', 'C', 'E', 'RW', 'RE'])
+    return status in valid_statuses
 
 def get_db_connection():
     """Get database connection with timeout - non-blocking for Flask startup"""
@@ -987,9 +1016,14 @@ def session_info():
 def get_requests():
     """Get all requests with pagination and search - Phase 3"""
     try:
+        # Get pagination config
+        pagination_config = config.get_app_constants().get('pagination', {})
+        default_page_size = pagination_config.get('defaultPageSize', 50)
+        max_page_size = pagination_config.get('maxPageSize', 500)
+
         # Get query parameters
         page = int(request.args.get('page', 1))
-        limit = int(request.args.get('limit', 50))
+        limit = min(int(request.args.get('limit', default_page_size)), max_page_size)
         search_term = request.args.get('search', '').strip()
 
         offset = (page - 1) * limit
@@ -1594,21 +1628,248 @@ def download_request(request_id):
         'error': 'Download functionality not yet implemented'
     }), 501
 
+@app.route('/api/upload/validate', methods=['POST'])
+def validate_file_upload():
+    """Real-time file validation endpoint"""
+    try:
+        # Check if feature is enabled
+        if not config.is_feature_enabled('file_upload_enabled'):
+            return jsonify({
+                'success': False,
+                'error': 'File upload feature is not enabled'
+            }), 403
+
+        # Validate request
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided'
+            }), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected'
+            }), 400
+
+        # Get file type and parameters
+        file_type = request.form.get('file_type')
+        client_name = request.form.get('client_name', '')
+        week_name = request.form.get('week_name', '')
+
+        if not file_type:
+            return jsonify({
+                'success': False,
+                'error': 'File type is required'
+            }), 400
+
+        if file_type not in ['timestamp', 'cpm', 'decile']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid file type. Must be: timestamp, cpm, or decile'
+            }), 400
+
+        # Read file content
+        file_content = file.read()
+        filename = file.filename
+
+        # Normalize file content (convert Excel to CSV if needed)
+        try:
+            normalized_content = FileUtils.normalize_file_content(file_content, filename, '|')
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'File format error: {str(e)}'
+            }), 400
+
+        # Validate file
+        validation_result = file_validator.validate_file(normalized_content, filename, file_type)
+
+        # Add expected filename info
+        if client_name and week_name:
+            expected_filename = upload_service.generate_filename(file_type, client_name, week_name)
+            validation_result['expected_filename'] = expected_filename
+            validation_result['file_exists'] = upload_service.file_exists(file_type, client_name, week_name)
+
+        logger.info(f"File validation completed for {filename}: {'VALID' if validation_result['valid'] else 'INVALID'}")
+
+        return jsonify({
+            'success': True,
+            'validation': validation_result
+        })
+
+    except Exception as e:
+        logger.error(f"Error in file validation: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Validation error: {str(e)}'
+        }), 500
+
+@app.route('/api/upload/save', methods=['POST'])
+def save_uploaded_file():
+    """Save validated file to storage"""
+    try:
+        # Check if feature is enabled
+        if not config.is_feature_enabled('file_upload_enabled'):
+            return jsonify({
+                'success': False,
+                'error': 'File upload feature is not enabled'
+            }), 403
+
+        # Validate request
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file provided'
+            }), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected'
+            }), 400
+
+        # Get required parameters
+        file_type = request.form.get('file_type')
+        client_name = request.form.get('client_name', '')
+        week_name = request.form.get('week_name', '')
+
+        if not all([file_type, client_name, week_name]):
+            return jsonify({
+                'success': False,
+                'error': 'file_type, client_name, and week_name are required'
+            }), 400
+
+        # Read and normalize file content
+        file_content = file.read()
+        filename = file.filename
+
+        try:
+            normalized_content = FileUtils.normalize_file_content(file_content, filename, '|')
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'File format error: {str(e)}'
+            }), 400
+
+        # Validate file first (if realtime validation is enabled)
+        if config.is_feature_enabled('realtime_validation'):
+            validation_result = file_validator.validate_file(normalized_content, filename, file_type)
+            if not validation_result['valid']:
+                return jsonify({
+                    'success': False,
+                    'error': 'File validation failed',
+                    'validation': validation_result
+                }), 400
+
+        # Save file
+        save_result = upload_service.save_file(normalized_content, file_type, client_name, week_name, filename)
+
+        if not save_result['success']:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to save file',
+                'details': save_result['errors']
+            }), 500
+
+        logger.info(f"File saved successfully: {save_result['file_path']}")
+
+        return jsonify({
+            'success': True,
+            'file_path': save_result['absolute_path'],
+            'filename': save_result['filename'],
+            'file_info': save_result.get('file_info', {})
+        })
+
+    except Exception as e:
+        logger.error(f"Error saving file: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Upload error: {str(e)}'
+        }), 500
+
 @app.route('/api/requests/<int:request_id>/upload', methods=['POST'])
 def upload_request_file(request_id):
-    """Upload files for a request - placeholder implementation"""
+    """Upload files for a request - enhanced implementation"""
     logger.info(f"📤 Upload request endpoint called for ID: {request_id}")
 
-    # This is a placeholder - in a real implementation, you would:
-    # 1. Check if request exists
-    # 2. Validate the uploaded file
-    # 3. Store the file in the appropriate location
-    # 4. Update the request status if needed
+    try:
+        # Legacy endpoint - redirect to new upload flow
+        return jsonify({
+            'success': False,
+            'error': 'Please use /api/upload/save endpoint for file uploads',
+            'redirect': '/api/upload/save'
+        }), 400
 
-    return jsonify({
-        'success': False,
-        'error': 'Upload functionality not yet implemented'
-    }), 501
+    except Exception as e:
+        logger.error(f"Error in request upload: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/upload/cross-validate', methods=['POST'])
+def cross_validate_files():
+    """Cross-validate multiple uploaded files"""
+    try:
+        # Check if feature is enabled
+        if not config.is_feature_enabled('file_upload_enabled'):
+            return jsonify({
+                'success': False,
+                'error': 'File upload feature is not enabled'
+            }), 403
+
+        # Get uploaded files
+        files_data = {}
+        filenames = {}
+
+        # Check for each file type
+        for file_type in ['cpm', 'decile', 'timestamp']:
+            if file_type in request.files:
+                file = request.files[file_type]
+                if file and file.filename:
+                    files_data[file_type] = file.read()
+                    filenames[file_type] = file.filename
+
+        # Also check for file paths if files are already uploaded
+        client_name = request.form.get('client_name', '')
+        week_name = request.form.get('week_name', '')
+
+        # Read from uploaded files if paths are provided
+        for file_type in ['cpm', 'decile', 'timestamp']:
+            file_path = request.form.get(f'{file_type}_path')
+            if file_path and file_type not in files_data:
+                try:
+                    with open(file_path, 'rb') as f:
+                        files_data[file_type] = f.read()
+                        filenames[file_type] = file_path.split('/')[-1]
+                except Exception as e:
+                    logger.warning(f"Could not read {file_type} file from path {file_path}: {e}")
+
+        if not files_data:
+            return jsonify({
+                'success': False,
+                'error': 'No files provided for cross-validation'
+            }), 400
+
+        # Perform cross-validation
+        cross_validation_result = file_validator.cross_validate_files(files_data, filenames)
+
+        logger.info(f"Cross-validation completed with {len(cross_validation_result['validations_performed'])} validations")
+
+        return jsonify({
+            'success': True,
+            'cross_validation': cross_validation_result
+        })
+
+    except Exception as e:
+        logger.error(f"Error in cross-validation: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Cross-validation error: {str(e)}'
+        }), 500
 
 @app.route('/api/requests/status-counts', methods=['GET'])
 def get_status_counts():
@@ -1663,10 +1924,12 @@ def get_client_name(request_id):
         cursor = conn.cursor()
 
         # Query based on config.properties CLIENT_NAME logic
-        query = """
+        clients_table = config.get_table_name('clients')
+        requests_table = config.get_table_name('requests')
+        query = f"""
         SELECT UPPER(client_name) 
-        FROM APT_CUSTOM_CLIENT_INFO_TABLE_DND a 
-        JOIN APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND b ON a.client_id = b.client_id 
+        FROM {clients_table} a 
+        JOIN {requests_table} b ON a.client_id = b.client_id 
         WHERE request_id = %s
         """
 
@@ -1701,9 +1964,10 @@ def get_week(request_id):
         cursor = conn.cursor()
 
         # Query based on config.properties WEEK logic
-        query = """
+        requests_table = config.get_table_name('requests')
+        query = f"""
         SELECT UPPER(week) 
-        FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND 
+        FROM {requests_table} 
         WHERE request_id = %s
         """
 
