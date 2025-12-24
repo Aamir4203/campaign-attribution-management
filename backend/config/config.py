@@ -117,6 +117,41 @@ class ConfigManager:
         """Get specific table name by key"""
         return self.get_table_names().get(table_key, '')
 
+    def get_external_databases(self) -> Dict[str, Dict[str, Any]]:
+        """Get external database configurations"""
+        return self._config.get('external_databases', {})
+
+    def get_external_db_config(self, db_key: str) -> Dict[str, Any]:
+        """Get specific external database configuration"""
+        return self.get_external_databases().get(db_key, {})
+
+    def get_file_paths(self) -> Dict[str, str]:
+        """Get file system path configurations"""
+        return self._config.get('file_paths', {})
+
+    def get_file_path(self, path_key: str, **kwargs) -> str:
+        """Get specific file path with optional formatting"""
+        path_template = self.get_file_paths().get(path_key, '')
+        if kwargs:
+            return path_template.format(**kwargs)
+        return path_template
+
+    def get_alerts_config(self) -> Dict[str, str]:
+        """Get alert configuration"""
+        return self._config.get('alerts', {})
+
+    def get_upload_config(self) -> Dict[str, Any]:
+        """Get file upload configuration"""
+        return self._config.get('constants', {}).get('upload', {})
+
+    def get_features(self) -> Dict[str, bool]:
+        """Get feature flag configuration"""
+        return self._config.get('features', {})
+
+    def is_feature_enabled(self, feature_name: str) -> bool:
+        """Check if a feature is enabled"""
+        return self.get_features().get(feature_name, False)
+
     def get_app_constants(self) -> Dict[str, Any]:
         """Get application constants"""
         return self._config.get('constants', {})
@@ -186,7 +221,7 @@ class ConfigManager:
 
             # Check table names
             table_config = self.get_table_names()
-            required_tables = ['clients', 'requests']
+            required_tables = ['clients', 'requests', 'qa_stats', 'tracking']
             for table in required_tables:
                 if not table_config.get(table):
                     logger.error(f"❌ Missing table configuration: {table}")
