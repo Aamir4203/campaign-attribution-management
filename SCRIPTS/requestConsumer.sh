@@ -182,6 +182,8 @@ then
                 >$HOMEPATH/LOGS/TRT_sucess.log
                 >$HOMEPATH/LOGS/Resp_$new_request_id.log
 
+                rm -f $HOMEPATH/FILES/decile_*.csv
+
                 sh -x $SCRIPTPATH/trtPreparation.sh  $new_request_id >>$HOMEPATH/LOGS/$new_request_id.log 2>>$HOMEPATH/LOGS/$new_request_id.log
 
         fi
