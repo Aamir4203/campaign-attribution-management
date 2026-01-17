@@ -48,7 +48,7 @@ class UploadService:
         Generate filename based on configuration and parameters.
         
         Args:
-            file_type: Type of file ('timestamp', 'cpm', 'decile')
+            file_type: Type of file ('timestamp', 'cpm', 'decile', 'unique_decile')
             client_name: Client name from form
             week_name: Week name from form
             
@@ -60,7 +60,8 @@ class UploadService:
             prefix_map = {
                 'timestamp': self.naming_config.get('timestamp_prefix', 'TimeStampReport'),
                 'cpm': self.naming_config.get('cpm_prefix', 'CPM_Report'),
-                'decile': self.naming_config.get('decile_prefix', 'Decile_Report')
+                'decile': self.naming_config.get('decile_prefix', 'Decile_Report'),
+                'unique_decile': self.naming_config.get('unique_decile_prefix', 'Unique_Decile_Report')
             }
             
             prefix = prefix_map.get(file_type, f'{file_type.title()}_Report')

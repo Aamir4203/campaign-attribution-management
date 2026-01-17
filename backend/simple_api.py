@@ -1664,10 +1664,10 @@ def validate_file_upload():
                 'error': 'File type is required'
             }), 400
 
-        if file_type not in ['timestamp', 'cpm', 'decile']:
+        if file_type not in ['timestamp', 'cpm', 'decile', 'unique_decile']:
             return jsonify({
                 'success': False,
-                'error': 'Invalid file type. Must be: timestamp, cpm, or decile'
+                'error': 'Invalid file type. Must be: timestamp, cpm, decile, or unique_decile'
             }), 400
 
         # Read file content

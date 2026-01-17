@@ -8,7 +8,7 @@ import { useFileUpload } from '../../hooks/useFileUpload';
 import ValidationIndicator from './ValidationIndicator';
 
 interface FileUploadWithValidationProps {
-  fileType: 'timestamp' | 'cpm' | 'decile';
+  fileType: 'timestamp' | 'cpm' | 'decile' | 'unique_decile';
   clientName: string;
   weekName: string;
   onFileValidated: (filePath: string) => void;
@@ -51,30 +51,40 @@ const FileUploadWithValidation: React.FC<FileUploadWithValidationProps> = ({
     clientName,
     weekName,
     onUploadSuccess: onFileValidated,
-    onValidationResult: (result) => {
-      if (!result.valid && onValidationError) {
-        onValidationError(result.errors.join(', '));
-      }
-    }
+    // Don't use onValidationResult to call onValidationError - ValidationIndicator handles display
+    onValidationResult: undefined
   });
 
   const handleFileSelect = useCallback(async (file: File) => {
     // Basic validation first
     if (!isFileSupported(file.name)) {
-      onValidationError?.('Unsupported file type. Please use CSV, XLSX, or XLS files.');
+      if (onValidationError) {
+        onValidationError('Unsupported file type. Please use CSV, XLSX, or XLS files.');
+      }
       return;
     }
 
     if (!validateFileSize(file)) {
-      onValidationError?.('File is too large. Maximum size is 50MB.');
+      if (onValidationError) {
+        onValidationError('File is too large. Maximum size is 50MB.');
+      }
       return;
     }
 
-    // Perform validation
+    // Clear any previous errors before validation
+    if (onValidationError) {
+      onValidationError('');
+    }
+
+    // Perform validation - errors will be shown by ValidationIndicator
     try {
       await validateFile(file);
     } catch (error) {
       console.error('File validation error:', error);
+      // Only report system errors, not validation failures
+      if (onValidationError && error instanceof Error) {
+        onValidationError(`System error: ${error.message}`);
+      }
     }
   }, [isFileSupported, validateFileSize, validateFile, onValidationError]);
 
@@ -103,7 +113,13 @@ const FileUploadWithValidation: React.FC<FileUploadWithValidationProps> = ({
   }, [resetState]);
 
   const expectedFilename = getExpectedFilename();
-  const fileTypeLabel = fileType === 'cpm' ? 'CPM Report' : fileType === 'decile' ? 'Decile Report' : 'Timestamp Report';
+  const fileTypeLabel = fileType === 'cpm'
+    ? 'CPM Report'
+    : fileType === 'decile'
+      ? 'Decile Report'
+      : fileType === 'unique_decile'
+        ? 'Unique Decile Report'
+        : 'Timestamp Report';
 
   return (
     <div className={`${className}`}>

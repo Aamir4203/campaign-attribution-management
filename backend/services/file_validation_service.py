@@ -425,7 +425,7 @@ class FileValidationService:
         Args:
             file_content: File content as bytes
             filename: Original filename
-            file_type: Type of file ('cpm', 'decile', 'timestamp')
+            file_type: Type of file ('cpm', 'decile', 'unique_decile', 'timestamp')
 
         Returns:
             Dict with validation results
@@ -434,7 +434,8 @@ class FileValidationService:
 
         if file_type == 'cpm':
             return self.validate_cpm_report(file_content, filename)
-        elif file_type == 'decile':
+        elif file_type == 'decile' or file_type == 'unique_decile':
+            # Both decile and unique_decile have the same structure (8 columns)
             return self.validate_decile_report(file_content, filename)
         elif file_type == 'timestamp':
             return self.validate_timestamp_report(file_content, filename)

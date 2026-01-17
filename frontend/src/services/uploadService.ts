@@ -5,7 +5,7 @@
 
 interface FileUploadRequest {
   file: File;
-  fileType: 'timestamp' | 'cpm' | 'decile';
+  fileType: 'timestamp' | 'cpm' | 'decile' | 'unique_decile';
   clientName: string;
   weekName: string;
 }

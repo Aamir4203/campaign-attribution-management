@@ -765,7 +765,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
             <div className="flex items-center space-x-2">
               <span className="text-blue-600 font-semibold text-sm">1.</span>
               <h3 className="text-sm font-medium text-gray-800">Client Information</h3>
-              {watch('clientName') && watch('requestType') && (
+              {watch('clientName') && watch('requestType') && watch('week') && (
                 <span className="text-green-600 text-xs">✓</span>
               )}
             </div>
@@ -828,21 +828,53 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                   )}
                 </div>
 
-                {/* Type 2 Unique Decile Report Path - Inline beside Request Type */}
+                <div className="flex-shrink-0 w-48">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Week *
+                    {weekTriggerPending && (
+                      <span className="ml-2 text-xs text-blue-600 flex items-center">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-1"></div>
+                        Checking cycle...
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    {...register('week')}
+                    className={`w-44 px-2 py-1 border rounded focus:outline-none focus:ring-2 text-sm ${
+                      weekTriggerPending
+                        ? 'border-blue-300 focus:ring-blue-500 bg-blue-50'
+                        : 'border-gray-300 focus:ring-blue-500'
+                    }`}
+                    placeholder="e.g., Q4_W8"
+                  />
+                  {errors.week && (
+                    <p className="mt-1 text-xs text-red-600">{errors.week.message}</p>
+                  )}
+                  {weekTriggerPending && (
+                    <div className="mt-1 text-xs text-blue-600 flex items-center">
+                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-1"></div>
+                      W1/W2 detected - validating new cycle
+                    </div>
+                  )}
+                </div>
+
+                {/* Type 2 Unique Decile Report Upload - Inline beside Week */}
                 {showFilePath && (
                   <div className="flex-shrink-0 w-80">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Unique Decile Report Path *
-                    </label>
-                    <input
-                      type="text"
-                      {...register('filePath')}
-                      className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
-                      placeholder="Enter unique decile report file path"
+                    <HybridFileInput
+                      label="Unique Decile Report Path *"
+                      placeholder="Enter unique decile report path"
+                      value={watch('filePath') || ''}
+                      onChange={(value) => setValue('filePath', value)}
+                      onFileUploaded={undefined} // Temporarily disabled
+                      // onFileUploaded={(filePath) => handleFileUploaded('unique_decile', filePath)}
+                      fileType="unique_decile"
+                      clientName={watch('clientName') || ''}
+                      weekName={watch('week') || ''}
+                      error={errors.filePath?.message}
+                      className="w-80"
                     />
-                    {errors.filePath && (
-                      <p className="mt-1 text-xs text-red-600">{errors.filePath.message}</p>
-                    )}
                   </div>
                 )}
               </div>
@@ -859,7 +891,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
             <div className="flex items-center space-x-2">
               <span className="text-green-600 font-semibold text-sm">2.</span>
               <h3 className="text-sm font-medium text-gray-800">Campaign Dates</h3>
-              {watch('startDate') && watch('endDate') && watch('residualStart') && watch('week') && (
+              {watch('startDate') && watch('endDate') && watch('residualStart') && (
                 <span className="text-green-600 text-xs">✓</span>
               )}
             </div>
@@ -875,7 +907,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
 
           {expandedSections.has(2) && (
             <div className="px-4 pb-4 border-t border-gray-100">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
                     Start Date *
@@ -915,37 +947,6 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                   />
                   {errors.residualStart && (
                     <p className="mt-1 text-xs text-red-600">{errors.residualStart.message}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Week *
-                    {weekTriggerPending && (
-                      <span className="ml-2 text-xs text-blue-600 flex items-center">
-                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-1"></div>
-                        Checking cycle...
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    type="text"
-                    {...register('week')}
-                    className={`w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 text-sm ${
-                      weekTriggerPending
-                        ? 'border-blue-300 focus:ring-blue-500 bg-blue-50'
-                        : 'border-gray-300 focus:ring-green-500'
-                    }`}
-                    placeholder="e.g., Q4_W8"
-                  />
-                  {errors.week && (
-                    <p className="mt-1 text-xs text-red-600">{errors.week.message}</p>
-                  )}
-                  {weekTriggerPending && (
-                    <div className="mt-1 text-xs text-blue-600 flex items-center">
-                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 mr-1"></div>
-                      W1/W2 detected - validating new cycle
-                    </div>
                   )}
                 </div>
               </div>

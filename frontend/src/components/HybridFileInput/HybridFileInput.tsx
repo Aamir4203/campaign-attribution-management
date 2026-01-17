@@ -13,7 +13,7 @@ interface HybridFileInputProps {
   value: string;
   onChange: (value: string) => void;
   onFileUploaded?: (filePath: string) => void; // New callback for when file is uploaded
-  fileType?: 'timestamp' | 'cpm' | 'decile';
+  fileType?: 'timestamp' | 'cpm' | 'decile' | 'unique_decile';
   clientName?: string;
   weekName?: string;
   error?: string;

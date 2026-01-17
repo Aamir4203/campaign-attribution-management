@@ -7,7 +7,7 @@ import { useState, useCallback } from 'react';
 import UploadService, { FileUploadRequest, ValidationResult, UploadResponse } from '../services/uploadService';
 
 interface UseFileUploadProps {
-  fileType: 'timestamp' | 'cpm' | 'decile';
+  fileType: 'timestamp' | 'cpm' | 'decile' | 'unique_decile';
   clientName: string;
   weekName: string;
   onUploadSuccess?: (filePath: string) => void;
@@ -88,7 +88,7 @@ export const useFileUpload = ({
         isValidating: false,
         isValid: result.valid,
         validationResult: result,
-        error: result.valid ? null : result.errors.join(', ')
+        error: null // Don't set error here - ValidationIndicator handles displaying errors
       }));
 
       // Call callback if provided
