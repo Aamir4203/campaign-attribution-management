@@ -81,19 +81,6 @@ const ValidationIndicator: React.FC<ValidationIndicatorProps> = ({
             </ul>
           </div>
         )}
-        {validationResult.file_info && Object.keys(validationResult.file_info).length > 0 && (
-          <div className="text-xs text-gray-500 mt-2 space-y-1">
-            {validationResult.file_info.rows !== undefined && validationResult.file_info.rows > 0 && (
-              <div>Detected rows: {validationResult.file_info.rows.toLocaleString()}</div>
-            )}
-            {validationResult.file_info.columns !== undefined && validationResult.file_info.columns > 0 && (
-              <div>Detected columns: {validationResult.file_info.columns}</div>
-            )}
-            {validationResult.file_info.size_mb !== undefined && validationResult.file_info.size_mb > 0 && (
-              <div>File size: {validationResult.file_info.size_mb} MB</div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

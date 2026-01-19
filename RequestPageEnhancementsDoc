@@ -325,7 +325,9 @@ IMPLEMENTATION APPROACH - January 17, 2026
      * Removed error state in useFileUpload validation (ValidationIndicator handles it)
      * Removed onValidationError callback for validation failures
      * onValidationError now only used for system errors (file too large, unsupported type)
-     * ValidationIndicator now only shows meaningful file_info (skips zeros/empty values)
+     * **Completely removed grey file_info section** (Detected rows/columns) from validation errors
+     * Validation errors now show ONLY the error icon and error message - clean and minimal
+     * Eliminated all duplicate and stray text displays
    - Changes applied to:
      * HybridFileInput.tsx
      * FileUploadWithValidation.tsx (placeholder + error handling)
@@ -333,7 +335,7 @@ IMPLEMENTATION APPROACH - January 17, 2026
      * ValidationIndicator.tsx (cleaner file_info display)
      * uploadService.ts
      * simple_api.py (validate endpoint)
-     * file_validation_service.py
+     * file_validation_service.pyg
      * upload_service.py
    - No errors detected
 
