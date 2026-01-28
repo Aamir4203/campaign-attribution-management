@@ -9,9 +9,7 @@ import FlushDeliveryDataModal from '../../Modal/FlushDeliveryDataModal';
 import SuccessModal from '../../Modal/SuccessModal';
 import ErrorModal from '../../Modal/ErrorModal';
 import HybridFileInput from '../../HybridFileInput/HybridFileInput';
-// Temporarily disable cross-validation imports to isolate rendering issues
-// import CrossValidationDisplay from '../../CrossValidation/CrossValidationDisplay';
-// import { useCrossValidation } from '../../../hooks/useCrossValidation';
+import { useCrossValidation } from '../../../hooks/useCrossValidation';
 
 // Simple AlertModal component
 const AlertModal: React.FC<{
@@ -151,8 +149,9 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const { register, handleSubmit, formState: { errors }, watch, setValue, setError, clearErrors } = form;
   const requestType = watch('requestType');
 
-  // Cross-validation hook TEMPORARILY DISABLED to isolate rendering issues
-  /*
+  // ========================================================================
+  // Cross-validation hook - RE-ENABLED with new state management
+  // ========================================================================
   const {
     isValidating: isCrossValidating,
     validationResult: crossValidationResult,
@@ -164,23 +163,303 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   } = useCrossValidation({
     clientName: watch('clientName') || '',
     weekName: watch('week') || '',
-    autoValidate: false, // DISABLE auto-validation to prevent infinite loops
+    autoValidate: false, // Manual validation only
     onValidationComplete: (result) => {
+      console.log('🔍 Cross-validation completed:', result);
+
+      // Update cross-validation state
+      setCrossValidationState({
+        performed: true,
+        passed: result.valid,
+        errors: result.errors || [],
+        validationsPerformed: result.validations_performed || []
+      });
+
       if (!result.valid) {
-        console.warn('Cross-validation failed:', result.errors);
+        console.warn('❌ Cross-validation failed:', result.errors);
+      } else {
+        console.log('✅ Cross-validation passed');
       }
     }
   });
-  */
+  // ========================================================================
+  // END: Cross-validation hook
+  // ========================================================================
 
-  // Placeholder values for disabled cross-validation
-  const isCrossValidating = false;
-  const crossValidationResult = null;
-  const resetCrossValidation = () => {};
-  const performCrossValidation = async () => {};
-  const hasCrossValidationResult = false;
+  // ========================================================================
+  // PHASE 3: Enhanced File Validation State Management
+  // ========================================================================
 
-  // Track uploaded files state to only validate when files are actually uploaded
+  /**
+   * Comprehensive file validation state for all 4 file types
+   * Tracks: upload status, validation status, enabled/disabled state, file paths
+   */
+  interface FileValidationState {
+    uploaded: boolean;          // File was selected and uploaded
+    saved: boolean;             // File saved to server
+    valid: boolean | null;      // Individual validation passed (null = not validated yet)
+    filePath: string;           // Server file path
+    enabled: boolean;           // User enabled this file (checkbox/request type)
+    validationError: string | null;
+    validationWarnings: string[];
+  }
+
+  const [fileStates, setFileStates] = useState<{
+    cpm: FileValidationState;
+    decile: FileValidationState;
+    timestamp: FileValidationState;
+    unique_decile: FileValidationState;
+  }>({
+    cpm: {
+      uploaded: false,
+      saved: false,
+      valid: null,
+      filePath: '',
+      enabled: true,  // Always enabled (mandatory)
+      validationError: null,
+      validationWarnings: []
+    },
+    decile: {
+      uploaded: false,
+      saved: false,
+      valid: null,
+      filePath: '',
+      enabled: true,  // Always enabled (mandatory)
+      validationError: null,
+      validationWarnings: []
+    },
+    timestamp: {
+      uploaded: false,
+      saved: false,
+      valid: null,
+      filePath: '',
+      enabled: false, // Disabled by default (optional checkbox)
+      validationError: null,
+      validationWarnings: []
+    },
+    unique_decile: {
+      uploaded: false,
+      saved: false,
+      valid: null,
+      filePath: '',
+      enabled: false, // Disabled by default (optional, Type-2 only)
+      validationError: null,
+      validationWarnings: []
+    }
+  });
+
+  // Track cross-validation state separately
+  const [crossValidationState, setCrossValidationState] = useState<{
+    performed: boolean;
+    passed: boolean | null;
+    errors: string[];
+    validationsPerformed: string[];
+  }>({
+    performed: false,
+    passed: null,
+    errors: [],
+    validationsPerformed: []
+  });
+
+  // ========================================================================
+  // END: Enhanced File Validation State Management
+  // ========================================================================
+
+  // ========================================================================
+  // File Upload Event Handlers
+  // ========================================================================
+
+  /**
+   * Trigger cross-validation if we have the required files
+   * Mandatory: CPM + Decile
+   * Optional: Timestamp (if enabled), Unique Decile (if enabled)
+   */
+  const triggerCrossValidationIfReady = useCallback(async (currentFileStates: typeof fileStates) => {
+    // Check if we have the required files
+    const hasCPM = currentFileStates.cpm.saved && currentFileStates.cpm.valid;
+    const hasDecile = currentFileStates.decile.saved && currentFileStates.decile.valid;
+
+    // Must have both mandatory files
+    if (!hasCPM || !hasDecile) {
+      console.log('⏸️ Not ready for cross-validation - missing mandatory files');
+      return;
+    }
+
+    // Collect enabled file paths
+    const filePaths: Record<string, string> = {};
+
+    // Always include mandatory files
+    if (hasCPM) filePaths.cpm = currentFileStates.cpm.filePath;
+    if (hasDecile) filePaths.decile = currentFileStates.decile.filePath;
+
+    // Include optional files if enabled and valid
+    if (currentFileStates.timestamp.enabled && currentFileStates.timestamp.saved && currentFileStates.timestamp.valid) {
+      filePaths.timestamp = currentFileStates.timestamp.filePath;
+    }
+
+    if (currentFileStates.unique_decile.enabled && currentFileStates.unique_decile.saved && currentFileStates.unique_decile.valid) {
+      filePaths.unique_decile = currentFileStates.unique_decile.filePath;
+    }
+
+    console.log('🔄 Triggering cross-validation with files:', Object.keys(filePaths));
+
+    try {
+      await performCrossValidation({}, filePaths);
+    } catch (error) {
+      console.error('❌ Cross-validation error:', error);
+    }
+  }, [performCrossValidation]);
+
+  /**
+   * Handle file uploaded and validated successfully
+   * Updates file state and triggers cross-validation if needed
+   */
+  const handleFileValidated = useCallback((
+    fileType: 'cpm' | 'decile' | 'timestamp' | 'unique_decile',
+    filePath: string,
+    isValid: boolean,
+    error: string | null = null,
+    warnings: string[] = []
+  ) => {
+    console.log(`📁 File validated: ${fileType}`, { filePath, isValid, error });
+
+    setFileStates(prev => {
+      const newState = {
+        ...prev,
+        [fileType]: {
+          ...prev[fileType],
+          uploaded: true,
+          saved: !!filePath,
+          valid: isValid,
+          filePath: filePath,
+          validationError: error,
+          validationWarnings: warnings
+        }
+      };
+
+      // Update form value
+      const formFieldMap: Record<string, string> = {
+        cpm: 'reportpath',
+        decile: 'qspath',
+        timestamp: 'timeStampPath',
+        unique_decile: 'filePath'
+      };
+
+      const formField = formFieldMap[fileType];
+      if (formField) {
+        setValue(formField as any, filePath);
+      }
+
+      // ⚠️ ONLY trigger cross-validation if individual file validation SUCCEEDED
+      if (isValid && filePath) {
+        setTimeout(() => {
+          triggerCrossValidationIfReady(newState);
+        }, 100);
+      } else {
+        console.log(`⚠️ File ${fileType} validation failed - skipping cross-validation`);
+        // Clear cross-validation state since we have invalid files
+        setCrossValidationState({
+          performed: false,
+          passed: null,
+          errors: [],
+          validationsPerformed: []
+        });
+      }
+
+      return newState;
+    });
+  }, [setValue, triggerCrossValidationIfReady]);
+
+  /**
+   * Handle checkbox or request type changes that enable/disable optional files
+   */
+  const handleFileEnabledChange = useCallback((
+    fileType: 'timestamp' | 'unique_decile',
+    enabled: boolean
+  ) => {
+    setFileStates(prev => {
+      // Check if the enabled state has actually changed
+      if (prev[fileType].enabled === enabled) {
+        // No change, return previous state without triggering updates
+        return prev;
+      }
+
+      console.log(`⚙️ File enabled state changed: ${fileType} = ${enabled}`);
+
+      const newState = {
+        ...prev,
+        [fileType]: {
+          ...prev[fileType],
+          enabled: enabled
+        }
+      };
+
+      // If disabled, clear form field (but keep file state for potential re-enable)
+      if (!enabled) {
+        const formFieldMap: Record<string, string> = {
+          timestamp: 'timeStampPath',
+          unique_decile: 'filePath'
+        };
+
+        const formField = formFieldMap[fileType];
+        if (formField) {
+          setValue(formField as any, '');
+        }
+
+        // Clear cross-validation state (will re-validate without this file)
+        setCrossValidationState({
+          performed: false,
+          passed: null,
+          errors: [],
+          validationsPerformed: []
+        });
+      }
+
+      // Trigger cross-validation re-run with new enabled state
+      setTimeout(() => {
+        triggerCrossValidationIfReady(newState);
+      }, 100);
+
+      return newState;
+    });
+  }, [setValue, triggerCrossValidationIfReady]);
+
+  /**
+   * Clear file state when file is removed/re-uploaded
+   */
+  const handleFileClear = useCallback((
+    fileType: 'cpm' | 'decile' | 'timestamp' | 'unique_decile'
+  ) => {
+    console.log(`🗑️ File cleared: ${fileType}`);
+
+    setFileStates(prev => ({
+      ...prev,
+      [fileType]: {
+        ...prev[fileType],
+        uploaded: false,
+        saved: false,
+        valid: null,
+        filePath: '',
+        validationError: null,
+        validationWarnings: []
+      }
+    }));
+
+    // Clear cross-validation (needs re-validation)
+    setCrossValidationState({
+      performed: false,
+      passed: null,
+      errors: [],
+      validationsPerformed: []
+    });
+  }, []);
+
+  // ========================================================================
+  // END: File Upload Event Handlers
+  // ========================================================================
+
+  // LEGACY: Track uploaded files state to only validate when files are actually uploaded
+  // TODO: Remove this after full migration to fileStates
   const [uploadedFiles, setUploadedFiles] = useState({
     cpm: false,
     decile: false,
@@ -192,6 +471,34 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const qsPath = watch('qspath');
   const timeStampPath = watch('timeStampPath');
   const addTimeStamp = watch('addTimeStamp');
+
+  // ========================================================================
+  // Watchers for Enabled State Changes
+  // ========================================================================
+
+  /**
+   * Watch for timestamp checkbox changes
+   * Update timestamp file enabled state
+   */
+  useEffect(() => {
+    const enabled = !!addTimeStamp;
+    handleFileEnabledChange('timestamp', enabled);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addTimeStamp]);
+
+  /**
+   * Watch for request type changes
+   * Update unique_decile file enabled state (enabled when Type-2)
+   */
+  useEffect(() => {
+    const enabled = requestType === '2';
+    handleFileEnabledChange('unique_decile', enabled);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestType]);
+
+  // ========================================================================
+  // END: Watchers for Enabled State Changes
+  // ========================================================================
 
   // Function to handle file upload completion and trigger validation
   const handleFileUploaded = useCallback((fileType: 'cpm' | 'decile' | 'timestamp', filePath: string) => {
@@ -640,6 +947,69 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     try {
       setSubmitting(true);
 
+      // ========================================================================
+      // VALIDATION CHECK: Ensure cross-validation passed before submission
+      // ========================================================================
+
+      console.log('📋 Form submission - File states:', {
+        cpm: { saved: fileStates.cpm.saved, valid: fileStates.cpm.valid, path: fileStates.cpm.filePath },
+        decile: { saved: fileStates.decile.saved, valid: fileStates.decile.valid, path: fileStates.decile.filePath },
+        timestamp: { enabled: fileStates.timestamp.enabled, saved: fileStates.timestamp.saved, valid: fileStates.timestamp.valid },
+        unique_decile: { enabled: fileStates.unique_decile.enabled, saved: fileStates.unique_decile.saved, valid: fileStates.unique_decile.valid }
+      });
+
+      console.log('🔍 Cross-validation state:', crossValidationState);
+
+      // Check if mandatory files are uploaded and valid
+      if (!fileStates.cpm.saved || !fileStates.cpm.valid) {
+        alert('❌ CPM report must be uploaded and valid before submission.');
+        setSubmitting(false);
+        return;
+      }
+
+      if (!fileStates.decile.saved || !fileStates.decile.valid) {
+        alert('❌ Decile report must be uploaded and valid before submission.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Check if optional files are enabled but not uploaded/valid
+      if (fileStates.timestamp.enabled && (!fileStates.timestamp.saved || !fileStates.timestamp.valid)) {
+        alert('❌ Timestamp report is enabled but not uploaded or invalid. Please upload a valid file or uncheck the option.');
+        setSubmitting(false);
+        return;
+      }
+
+      if (fileStates.unique_decile.enabled && (!fileStates.unique_decile.saved || !fileStates.unique_decile.valid)) {
+        alert('❌ Unique Decile report is required for Type-2 requests. Please upload a valid file or change request type.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Check if cross-validation was performed and passed
+      if (crossValidationState.performed && crossValidationState.passed === false) {
+        const errorList = crossValidationState.errors.join('\n• ');
+        if (confirm(`❌ Cannot submit request due to validation issues:\n\n• ${errorList}\n\nPlease resolve these issues and try again.\n\nClick OK to see the validation section.`)) {
+          // Scroll to cross-validation section
+          const crossValSection = document.querySelector('[class*="Cross-Validation"]');
+          crossValSection?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        setSubmitting(false);
+        return;
+      }
+
+      // If cross-validation hasn't been performed yet but we have mandatory files, trigger it now
+      if (!crossValidationState.performed && fileStates.cpm.saved && fileStates.decile.saved) {
+        alert('⚠️ Cross-validation has not been performed yet. Please wait for validation to complete.');
+        await triggerCrossValidationIfReady(fileStates);
+        setSubmitting(false);
+        return;
+      }
+
+      // ========================================================================
+      // END: VALIDATION CHECK
+      // ========================================================================
+
       const requestData = {
         client_name: data.clientName,
         added_by: data.addedBy,
@@ -673,10 +1043,13 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
 
       if (editMode && initialData?.request_id) {
         // Edit mode - Update existing request and rerun
-        const rerunModuleElement = document.querySelector('input[name="rerunModule"]:checked') as HTMLInputElement;
+        // FIX: Get value from SELECT dropdown, not radio input
+        const rerunModuleElement = document.querySelector('select[name="rerunModule"]') as HTMLSelectElement;
         const rerunModule = rerunModuleElement?.value || 'TRT';
 
-        console.log('🔄 Edit mode: Updating request', initialData.request_id, 'with rerun module:', rerunModule);
+        console.log('🔄 Edit mode: Updating request', initialData.request_id);
+        console.log('📦 Rerun module selected:', rerunModule);
+        console.log('📋 Full request data being sent:', { ...requestData, rerun_module: rerunModule });
 
         // Call update endpoint (you may need to create this endpoint)
         response = await api.post(`/update_request/${initialData.request_id}`, {
@@ -864,11 +1237,11 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                   <div className="flex-shrink-0 w-80">
                     <HybridFileInput
                       label="Unique Decile Report Path *"
-                      placeholder="Enter unique decile report path"
+                      placeholder="Select Unique Decile Report file"
                       value={watch('filePath') || ''}
                       onChange={(value) => setValue('filePath', value)}
-                      onFileUploaded={undefined} // Temporarily disabled
-                      // onFileUploaded={(filePath) => handleFileUploaded('unique_decile', filePath)}
+                      onFileValidated={(filePath, isValid, error) => handleFileValidated('unique_decile', filePath, isValid, error || null)}
+                      onValidationError={(error) => handleFileValidated('unique_decile', '', false, error)}
                       fileType="unique_decile"
                       clientName={watch('clientName') || ''}
                       weekName={watch('week') || ''}
@@ -1041,11 +1414,11 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                   <div className="w-96">
                     <HybridFileInput
                       label="TimeStamp File Path *"
-                      placeholder="Enter timestamp file path"
+                      placeholder="Select Timestamp Report file"
                       value={watch('timeStampPath') || ''}
                       onChange={(value) => setValue('timeStampPath', value)}
-                      onFileUploaded={undefined} // Temporarily disabled
-                      // onFileUploaded={(filePath) => handleFileUploaded('timestamp', filePath)}
+                      onFileValidated={(filePath, isValid, error) => handleFileValidated('timestamp', filePath, isValid, error || null)}
+                      onValidationError={(error) => handleFileValidated('timestamp', '', false, error)}
                       fileType="timestamp"
                       clientName={watch('clientName') || ''}
                       weekName={watch('week') || ''}
@@ -1088,11 +1461,11 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                 <div className="flex-shrink-0 w-80">
                   <HybridFileInput
                     label="CPM Report Path *"
-                    placeholder="Enter CPM report path"
+                    placeholder="Select CPM Report file"
                     value={watch('reportpath') || ''}
                     onChange={(value) => setValue('reportpath', value)}
-                    onFileUploaded={undefined} // Temporarily disabled
-                    // onFileUploaded={(filePath) => handleFileUploaded('cpm', filePath)}
+                    onFileValidated={(filePath, isValid, error) => handleFileValidated('cpm', filePath, isValid, error || null)}
+                    onValidationError={(error) => handleFileValidated('cpm', '', false, error)}
                     fileType="cpm"
                     clientName={watch('clientName') || ''}
                     weekName={watch('week') || ''}
@@ -1104,11 +1477,11 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                 <div className="flex-shrink-0 w-80">
                   <HybridFileInput
                     label="Decile Report Path *"
-                    placeholder="Enter decile report path"
+                    placeholder="Select Decile Report file"
                     value={watch('qspath') || ''}
                     onChange={(value) => setValue('qspath', value)}
-                    onFileUploaded={undefined} // Temporarily disabled
-                    // onFileUploaded={(filePath) => handleFileUploaded('decile', filePath)}
+                    onFileValidated={(filePath, isValid, error) => handleFileValidated('decile', filePath, isValid, error || null)}
+                    onValidationError={(error) => handleFileValidated('decile', '', false, error)}
                     fileType="decile"
                     clientName={watch('clientName') || ''}
                     weekName={watch('week') || ''}
@@ -1121,65 +1494,45 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           )}
         </div>
 
-        {/* Section 4.5: Cross-Validation - TEMPORARILY DISABLED */}
-        {/*
-        {shouldRunCrossValidation() && (
-          <div className="bg-white border border-gray-200 rounded shadow-sm">
-            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className="text-indigo-600 font-semibold text-sm">📋</span>
-                  <h3 className="text-sm font-medium text-gray-800">File Cross-Validation</h3>
-                  {isCrossValidating && (
-                    <div className="flex items-center space-x-1">
-                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-indigo-600"></div>
-                      <span className="text-xs text-indigo-600">Validating...</span>
-                    </div>
-                  )}
-                  {crossValidationResult?.valid && !isCrossValidating && (
-                    <span className="text-green-600 text-xs">✓ Valid</span>
-                  )}
-                  {crossValidationResult && !crossValidationResult.valid && !isCrossValidating && (
-                    <span className="text-red-600 text-xs">✗ Failed</span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCrossValidation}
-                  disabled={isCrossValidating}
-                  className="px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 disabled:opacity-50 transition-colors"
-                  title="Manually re-run validation"
-                >
-                  {isCrossValidating ? 'Validating...' : 'Re-validate'}
-                </button>
+        {/* Cross-Validation Overlay - Only shows during validation or on failure */}
+        {isCrossValidating && (
+          <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 flex items-center space-x-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <span className="text-gray-700 font-medium">Validating reports...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Cross-Validation Error Display - Only shows if validation failed */}
+        {!isCrossValidating && crossValidationState.performed && crossValidationState.passed === false && (
+          <div className="bg-white border-2 border-red-300 rounded-lg shadow-sm">
+            <div className="bg-red-50 px-4 py-3 border-b border-red-200">
+              <div className="flex items-center space-x-2">
+                <svg className="h-5 w-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <h3 className="text-sm font-semibold text-red-800">Cross-Validation Failed</h3>
               </div>
             </div>
-
             <div className="px-4 py-3">
-              <CrossValidationDisplay
-                isValidating={isCrossValidating}
-                validationResult={crossValidationResult}
-                className="w-full"
-              />
-
-              {!hasCrossValidationResult && !isCrossValidating && (
-                <div className="text-xs text-gray-500 mt-2">
-                  <p>✨ Cross-validation runs automatically when you upload 2+ files:</p>
-                  <ul className="mt-1 space-y-1 ml-4">
-                    <li>• CPM & Decile Reports: Segment and sub-segment matching</li>
-                    <li>• Timestamp & CPM Reports: Date range compatibility</li>
-                  </ul>
-                  <p className="mt-2 text-xs text-blue-600">
-                    📋 Current uploaded files: CPM({uploadedFiles.cpm ? '✓' : '✗'}),
-                    Decile({uploadedFiles.decile ? '✓' : '✗'})
-                    {addTimeStamp && `, Timestamp(${uploadedFiles.timestamp ? '✓' : '✗'})`}
-                  </p>
-                </div>
+              <p className="text-sm text-red-700 mb-2">Please fix the following issues before submitting:</p>
+              <ul className="space-y-1">
+                {crossValidationState.errors.map((error, index) => (
+                  <li key={index} className="text-sm text-red-600 flex items-start space-x-2">
+                    <span className="text-red-500 font-bold">•</span>
+                    <span>{error}</span>
+                  </li>
+                ))}
+              </ul>
+              {crossValidationState.validationsPerformed.length > 0 && (
+                <p className="text-xs text-gray-600 mt-3 pt-3 border-t border-red-100">
+                  Validations performed: {crossValidationState.validationsPerformed.join(', ')}
+                </p>
               )}
             </div>
           </div>
         )}
-        */}
 
         {/* Section 5: Suppression List */}
         <div className="bg-white border border-gray-200 rounded shadow-sm">

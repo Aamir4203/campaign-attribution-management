@@ -96,6 +96,7 @@ constants:
       timestamp_prefix: "TimeStampReport"
       cpm_prefix: "CPM_Report"
       decile_prefix: "Decile_Report"
+      unique_decile_prefix: "Unique_Decile_Report"
       format: "{prefix}_{client_name}_{week_name}.csv"
   modules:
     1: "trt"

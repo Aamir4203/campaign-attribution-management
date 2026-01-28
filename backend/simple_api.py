@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import logging
 import psycopg2
+from psycopg2 import pool
 import time
 import os
 from datetime import datetime, timedelta
@@ -47,6 +48,19 @@ CORS(app,
 # Get database configuration
 DB_CONFIG = config.get_database_credentials()
 
+# Initialize database connection pool for better performance
+try:
+    db_pool = pool.SimpleConnectionPool(
+        minconn=2,
+        maxconn=10,
+        connect_timeout=5,
+        **DB_CONFIG
+    )
+    logger.info("Database connection pool initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize database connection pool: {e}")
+    db_pool = None
+
 # Initialize file services
 file_validator = FileValidationService(config)
 upload_service = UploadService(config)
@@ -74,38 +88,33 @@ def validate_request_status(status):
     return status in valid_statuses
 
 def get_db_connection():
-    """Get database connection with timeout - non-blocking for Flask startup"""
+    """Get database connection from pool - thread-safe and performant"""
     try:
-        # Add connection timeout to prevent hanging
-        import signal
+        if db_pool:
+            # Get connection from pool (much faster than creating new connection)
+            conn = db_pool.getconn()
+            return conn
+        else:
+            # Fallback to direct connection if pool failed to initialize
+            conn = psycopg2.connect(**DB_CONFIG, connect_timeout=5)
+            return conn
 
-        # Set a timeout for database connection
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Database connection timeout")
-
-        # Only set timeout if not on Windows (signal.SIGALRM not available on Windows)
-        try:
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(5)  # 5 second timeout
-        except AttributeError:
-            # Windows doesn't support SIGALRM, use psycopg2 timeout only
-            pass
-
-        conn = psycopg2.connect(**DB_CONFIG, connect_timeout=5)
-
-        try:
-            signal.alarm(0)  # Cancel timeout
-        except AttributeError:
-            pass
-
-        return conn
-
-    except (psycopg2.OperationalError, TimeoutError) as e:
+    except psycopg2.OperationalError as e:
         logger.warning(f"Database connection failed: {e}")
         return None
     except Exception as e:
         logger.error(f"Database connection error: {e}")
         return None
+
+def release_db_connection(conn):
+    """Return connection to pool or close it"""
+    try:
+        if db_pool and conn:
+            db_pool.putconn(conn)
+        elif conn:
+            release_db_connection(conn)
+    except Exception as e:
+        logger.error(f"Error releasing connection: {e}")
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -140,7 +149,7 @@ def get_clients():
 
         clients = [{'client_name': row[0]} for row in results]
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -180,7 +189,7 @@ def check_client():
         result = cursor.fetchone()
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'exists': bool(result),
@@ -222,7 +231,7 @@ def add_client():
 
         if existing:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             return jsonify({
                 'success': False,
                 'message': f'Client "{client_name}" already exists'
@@ -237,7 +246,7 @@ def add_client():
 
         conn.commit()
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
 
         return jsonify({
@@ -392,7 +401,7 @@ def submit_form():
 
         if not client_result:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             return jsonify({
                 'success': False,
                 'message': f'Client "{data["clientName"]}" not found'
@@ -481,7 +490,7 @@ def submit_form():
             # Commit the transaction
             conn.commit()
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
 
             return jsonify({
                 'success': True,
@@ -495,7 +504,7 @@ def submit_form():
             # Rollback on database error
             conn.rollback()
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
 
             logger.error(f"Database insertion failed: {str(db_error)}")
 
@@ -606,7 +615,7 @@ def add_request():
 
         if not client_result:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             logger.error(f"❌ Client not found: {converted_data['clientName']}")
             return jsonify({
                 'success': False,
@@ -663,7 +672,7 @@ def add_request():
 
         conn.commit()
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         logger.info(f"✅ Request created successfully with ID: {request_id}")
 
@@ -781,7 +790,7 @@ def update_request(request_id):
 
         if not client_result:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             return jsonify({
                 'success': False,
                 'message': f'Client "{converted_data["clientName"]}" not found in database'
@@ -856,12 +865,12 @@ def update_request(request_id):
 
         if cursor.rowcount == 0:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             return jsonify({'success': False, 'error': 'Request not found'}), 404
 
         conn.commit()
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -931,7 +940,7 @@ def login():
 
         if not user:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
 
         # Create a new session
@@ -943,7 +952,7 @@ def login():
         }
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -1106,7 +1115,7 @@ def get_requests():
         total_pages = (total_count + limit - 1) // limit
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -1162,7 +1171,7 @@ def get_request_details(request_id):
         }
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -1266,7 +1275,7 @@ def download_request_stats(request_id):
         logs_stats = cursor.fetchall()
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         # Create DataFrames
         request_df = pd.DataFrame(main_stats, columns=['Name', 'Value'])
@@ -1396,7 +1405,7 @@ def get_request_stats(request_id):
             })
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -1460,7 +1469,7 @@ def rerun_request(request_id):
 
         conn.commit()
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         logger.info(f"✅ Request {request_id} marked for rerun - Module: {rerun_module} (Error Code: {error_code})")
 
@@ -1492,7 +1501,7 @@ def kill_request(request_id):
 
         if not result:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             return jsonify({'success': False, 'error': 'Request not found'}), 404
 
         current_status = result[0]
@@ -1509,7 +1518,7 @@ def kill_request(request_id):
             cursor.execute(update_query, (request_id,))
             conn.commit()
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
 
             return jsonify({
                 'success': True,
@@ -1520,7 +1529,7 @@ def kill_request(request_id):
         else:
             # For non-W state requests (R, RE, etc.), close connection and use shell script
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
 
             import subprocess
 
@@ -1546,12 +1555,12 @@ def kill_request(request_id):
 
                 if cursor.rowcount == 0:
                     cursor.close()
-                    conn.close()
+                    release_db_connection(conn)
                     return jsonify({'success': False, 'error': 'Request not found or cannot be cancelled'}), 400
 
                 conn.commit()
                 cursor.close()
-                conn.close()
+                release_db_connection(conn)
 
                 return jsonify({
                     'success': True,
@@ -1900,7 +1909,7 @@ def get_status_counts():
             status_counts[row[0]] = row[1]
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -1937,7 +1946,7 @@ def get_client_name(request_id):
         result = cursor.fetchone()
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         if result:
             return jsonify({
@@ -1975,7 +1984,7 @@ def get_week(request_id):
         result = cursor.fetchone()
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         if result:
             return jsonify({
@@ -2013,7 +2022,7 @@ def get_table_columns(table_name):
         results = cursor.fetchall()
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         if results:
             columns = [row[0] for row in results]
@@ -2087,7 +2096,7 @@ def download_metrics(request_id):
                     error_df.to_excel(writer, sheet_name=error_sheet_name, index=False)
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         output.seek(0)
 
@@ -2178,7 +2187,7 @@ def get_dashboard_metrics():
             metrics[metric_name] = result[0] if result[0] is not None else 0
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         logger.info(f"📊 Dashboard metrics result: {metrics}")
         return jsonify({
@@ -2229,7 +2238,7 @@ def get_trt_volume():
             })
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -2286,7 +2295,7 @@ def get_processing_time_trends():
                 })
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -2351,7 +2360,7 @@ def get_dashboard_alerts():
             })
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         return jsonify({
             'success': True,
@@ -2435,7 +2444,7 @@ def get_user_activity():
             logger.debug(f"👤 User: {user_entry['username']} - {user_entry['total_requests']} requests, {user_entry['success_rate']}% success")
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         logger.info(f"👥 User activity result: {len(user_data)} users found")
         return jsonify({
@@ -2463,7 +2472,7 @@ def get_system_status():
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM information_schema.tables")
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
         db_response_time = (time.time() - db_start_time) * 1000
 
         # Get processing queue status
@@ -2478,7 +2487,7 @@ def get_system_status():
         pending_requests = cursor.fetchone()[0]
 
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         # System resources (when available)
         try:
@@ -2541,7 +2550,7 @@ def run_health_check():
                 cursor.execute("SELECT version()")
                 db_version = cursor.fetchone()[0]
                 cursor.close()
-                conn.close()
+                release_db_connection(conn)
                 health_results['database'] = {'status': 'healthy', 'version': db_version}
             else:
                 health_results['database'] = {'status': 'failed', 'error': 'Connection failed'}
@@ -2559,7 +2568,7 @@ def run_health_check():
             cursor.execute(f"SELECT COUNT(*) FROM {requests_table}")
             total_requests = cursor.fetchone()[0]
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             health_results['processing_queue'] = {'status': 'operational', 'total_requests': total_requests}
         except Exception as e:
             health_results['processing_queue'] = {'status': 'failed', 'error': str(e)}
@@ -2634,7 +2643,7 @@ def flush_client_delivery_data(client_name):
 
         if not result:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             logger.error(f"❌ Client '{client_name}' not found in database")
             logger.info(f"💡 Available clients: {[client[1] for client in all_clients]}")
             return jsonify({
@@ -2647,7 +2656,7 @@ def flush_client_delivery_data(client_name):
 
         if not total_delivered_table:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             logger.error(f"❌ No total delivered table configured for client '{client_name}'")
             return jsonify({
                 'success': False,
@@ -2670,7 +2679,7 @@ def flush_client_delivery_data(client_name):
 
         if not table_exists:
             cursor.close()
-            conn.close()
+            release_db_connection(conn)
             logger.error(f"❌ Total delivered table '{total_delivered_table}' does not exist")
             return jsonify({
                 'success': False,
@@ -2691,7 +2700,7 @@ def flush_client_delivery_data(client_name):
         # Commit the transaction
         conn.commit()
         cursor.close()
-        conn.close()
+        release_db_connection(conn)
 
         logger.info(f"✅ Successfully flushed {row_count_before} records from {total_delivered_table}")
 

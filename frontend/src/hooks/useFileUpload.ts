@@ -55,7 +55,7 @@ export const useFileUpload = ({
     });
   }, []);
 
-  const validateFile = useCallback(async (file: File) => {
+  const validateFile = useCallback(async (file: File, autoUploadOnSuccess: boolean = false) => {
     if (!clientName || !weekName) {
       setState(prev => ({
         ...prev,
@@ -66,11 +66,12 @@ export const useFileUpload = ({
     }
 
     setState(prev => ({
-      ...prev,
+        ...prev,
       isValidating: true,
       error: null,
       isValid: null,
-      selectedFile: file
+      selectedFile: file,
+      uploadResult: null // Clear previous upload result
     }));
 
     try {
@@ -96,6 +97,57 @@ export const useFileUpload = ({
         onValidationResult(result);
       }
 
+      // Auto-upload if validation passes and autoUploadOnSuccess is true
+      if (result.valid && autoUploadOnSuccess) {
+        console.log(`✅ Validation passed for ${fileType}, auto-uploading in 500ms...`);
+        // Small delay to show validation success before uploading
+        setTimeout(async () => {
+          try {
+            console.log(`💾 Starting auto-upload for ${fileType}...`);
+            setState(prev => ({ ...prev, isUploading: true }));
+
+            const uploadRequest: FileUploadRequest = {
+              file,
+              fileType,
+              clientName,
+              weekName
+            };
+
+            console.log(`📤 Calling uploadService.uploadFile() for ${fileType}...`);
+            const uploadResult = await uploadService.uploadFile(uploadRequest);
+            console.log(`📥 Upload response for ${fileType}:`, uploadResult.success ? 'SUCCESS' : 'FAILED');
+
+            if (uploadResult.success) {
+              console.log(`   ✅ File path: ${uploadResult.file_path}`);
+            } else {
+              console.log(`   ❌ Error: ${uploadResult.error}`);
+            }
+
+            setState(prev => ({
+              ...prev,
+              isUploading: false,
+              uploadResult: uploadResult,
+              error: uploadResult.success ? null : uploadResult.error || 'Upload failed'
+            }));
+
+            if (uploadResult.success && uploadResult.file_path && onUploadSuccess) {
+              console.log(`📞 Calling onUploadSuccess callback for ${fileType}...`);
+              onUploadSuccess(uploadResult.file_path);
+            }
+          } catch (error) {
+            console.error(`❌ Upload exception for ${fileType}:`, error);
+            const errorMessage = error instanceof Error ? error.message : 'Upload failed';
+            setState(prev => ({
+              ...prev,
+              isUploading: false,
+              error: errorMessage
+            }));
+          }
+        }, 500);
+      } else if (!result.valid) {
+        console.log(`❌ Validation failed for ${fileType} - skipping auto-upload`);
+      }
+
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Validation failed';
@@ -107,7 +159,7 @@ export const useFileUpload = ({
       }));
       throw error;
     }
-  }, [fileType, clientName, weekName, onValidationResult, uploadService]);
+  }, [fileType, clientName, weekName, onValidationResult, onUploadSuccess, uploadService]);
 
   const uploadFile = useCallback(async (file?: File) => {
     const fileToUpload = file || state.selectedFile;
