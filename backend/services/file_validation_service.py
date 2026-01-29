@@ -112,11 +112,12 @@ class FileValidationService:
             return validation_result
 
         try:
-            # Try to read as CSV with pipe delimiter
+            # Read CSV with header row (header=0 means first row is header, skip it for validation)
             content_str = file_content.decode('utf-8')
-            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
+            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
 
-            validation_result['file_info']['rows'] = len(df)
+            # Validate column count ONLY (no header name validation as per user requirement)
+            validation_result['file_info']['rows'] = len(df)  # Data rows (excludes header)
             validation_result['file_info']['columns'] = len(df.columns)
 
             # Check column count (should be 14 for CPM report)
@@ -125,33 +126,33 @@ class FileValidationService:
                 validation_result['errors'].append(f"CPM report should have 14 columns, found {len(df.columns)}")
                 return validation_result
 
-            # Assign column names
-            df.columns = [
-                "Campaign", "Date", "Delivered", "Unique Opens", "Clicks", "Unsubs",
-                "sb", "hb", "Subject Line", "Creative", "Creative ID",
-                "Offer ID", "segment", "sub_seg"
-            ]
+            # Use positional column references (no header name dependency)
+            # Column positions: 0=Campaign, 1=Date, 2=Delivered, 3=Opens, 4=Clicks, 5=Unsubs,
+            #                   6=SB, 7=HB, 8=Subject, 9=Creative, 10=CreativeID,
+            #                   11=OfferID, 12=Segment, 13=SubSegment
 
             # Clean string columns
             df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
 
-            # Validate date format
-            invalid_dates = ~df["Date"].apply(self._is_valid_date)
+            # Validate date format (column 1 = Date)
+            invalid_dates = ~df.iloc[:, 1].apply(self._is_valid_date)
             if invalid_dates.any():
                 validation_result['valid'] = False
                 validation_result['errors'].append("Invalid date format found. Expected: YYYY-MM-DD")
                 validation_result['errors'].append(f"Invalid dates in rows: {df[invalid_dates].index.tolist()[:5]}")  # Show first 5
 
-            # Validate numeric columns
-            numeric_columns = ["Delivered", "Unique Opens", "Clicks", "Unsubs", "sb", "hb"]
-            for col in numeric_columns:
-                if not df[col].apply(self._validate_dtype).all():
-                    validation_result['valid'] = False
-                    validation_result['errors'].append(f"Invalid numeric values found in column: {col}")
+            # Validate numeric columns (columns 2-7: Delivered, Opens, Clicks, Unsubs, SB, HB)
+            numeric_col_indices = [2, 3, 4, 5, 6, 7]
+            numeric_col_names = ["Delivered", "Opens", "Clicks", "Unsubs", "SB", "HB"]
 
-            # Check for duplicate rows
-            key_columns = ["Date", "segment", "sub_seg", "Subject Line", "Creative", "Offer ID"]
-            duplicates = df.duplicated(subset=key_columns, keep=False)
+            for idx, col_name in zip(numeric_col_indices, numeric_col_names):
+                if not df.iloc[:, idx].apply(self._validate_dtype).all():
+                    validation_result['valid'] = False
+                    validation_result['errors'].append(f"Invalid numeric values found in column {idx+1} ({col_name})")
+
+            # Check for duplicate rows (columns 1,12,13,8,9,11 = Date,Segment,SubSeg,Subject,Creative,OfferID)
+            key_col_indices = [1, 12, 13, 8, 9, 11]
+            duplicates = df.iloc[:, key_col_indices].duplicated(keep=False)
             if duplicates.any():
                 duplicate_count = duplicates.sum()
                 validation_result['valid'] = False
@@ -160,28 +161,29 @@ class FileValidationService:
             # Additional validations
             if validation_result['valid']:
                 # Enhanced apostrophe validation for PostgreSQL compatibility
-                text_columns = ["Campaign", "Subject Line", "Creative"]
+                # Columns 0,8,9 = Campaign, Subject Line, Creative
+                text_col_indices = [0, 8, 9]
+                text_col_names = ["Campaign", "Subject Line", "Creative"]
                 apostrophe_issues = []
 
-                for col in text_columns:
-                    if col in df.columns:
-                        # Count single apostrophes (not already escaped double apostrophes)
-                        single_quotes = df[col].astype(str).str.contains("'", regex=False, na=False)
-                        already_escaped = df[col].astype(str).str.contains("''", regex=False, na=False)
+                for idx, col_name in zip(text_col_indices, text_col_names):
+                    # Count single apostrophes (not already escaped double apostrophes)
+                    single_quotes = df.iloc[:, idx].astype(str).str.contains("'", regex=False, na=False)
+                    already_escaped = df.iloc[:, idx].astype(str).str.contains("''", regex=False, na=False)
 
-                        unescaped_count = single_quotes.sum() - already_escaped.sum()
-                        if unescaped_count > 0:
-                            apostrophe_issues.append(f"{col} ({unescaped_count} rows)")
+                    unescaped_count = single_quotes.sum() - already_escaped.sum()
+                    if unescaped_count > 0:
+                        apostrophe_issues.append(f"{col_name} ({unescaped_count} rows)")
 
                 if apostrophe_issues:
                     validation_result['warnings'].append(f"Single quotes detected in: {', '.join(apostrophe_issues)}. These will be automatically converted to double quotes ('') for PostgreSQL compatibility.")
 
-                # Get date range
+                # Get date range from column 1 (Date)
                 try:
-                    df['Date'] = pd.to_datetime(df['Date'])
+                    date_col = pd.to_datetime(df.iloc[:, 1])
                     validation_result['file_info']['date_range'] = {
-                        'start': df['Date'].min().strftime('%Y-%m-%d'),
-                        'end': df['Date'].max().strftime('%Y-%m-%d')
+                        'start': date_col.min().strftime('%Y-%m-%d'),
+                        'end': date_col.max().strftime('%Y-%m-%d')
                     }
                 except:
                     pass
@@ -213,11 +215,12 @@ class FileValidationService:
             return validation_result
 
         try:
-            # Try to read as CSV with pipe delimiter
+            # Read CSV with header row (header=0 means first row is header, skip it for validation)
             content_str = file_content.decode('utf-8')
-            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
+            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
 
-            validation_result['file_info']['rows'] = len(df)
+            # Validate column count ONLY (no header name validation)
+            validation_result['file_info']['rows'] = len(df)  # Data rows (excludes header)
             validation_result['file_info']['columns'] = len(df.columns)
 
             # Check column count (should be exactly 8 for decile report)
@@ -226,11 +229,9 @@ class FileValidationService:
                 validation_result['errors'].append(f"Decile report should have exactly 8 columns, found {len(df.columns)}")
                 return validation_result
 
-            # Assign column names as per requestValidation.py
-            df.columns = [
-                "Delivered", "Opens", "clicks", "unsubs",
-                "segment", "sub_seg", "decile", "old_delivered_per"
-            ]
+            # Use positional column references
+            # Column positions: 0=Delivered, 1=Opens, 2=Clicks, 3=Unsubs,
+            #                   4=Segment, 5=SubSegment, 6=Decile, 7=OldPercentage
 
             # Clean string columns
             df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
@@ -241,29 +242,33 @@ class FileValidationService:
                 validation_result['errors'].append("Decile report is empty")
                 return validation_result
 
-            # Validate numeric columns
-            numeric_columns = ["Delivered", "Opens", "clicks", "unsubs", "old_delivered_per"]
-            for col in numeric_columns:
-                if not df[col].apply(self._validate_dtype).all():
-                    validation_result['valid'] = False
-                    validation_result['errors'].append(f"Invalid numeric values found in column: {col}")
+            # Validate numeric columns (columns 0-3,7: Delivered, Opens, Clicks, Unsubs, OldPercentage)
+            numeric_col_indices = [0, 1, 2, 3, 7]
+            numeric_col_names = ["Delivered", "Opens", "Clicks", "Unsubs", "OldPercentage"]
 
-            # Validate old_delivered_per column (should be > 0 and not null)
+            for idx, col_name in zip(numeric_col_indices, numeric_col_names):
+                if not df.iloc[:, idx].apply(self._validate_dtype).all():
+                    validation_result['valid'] = False
+                    validation_result['errors'].append(f"Invalid numeric values found in column {idx+1} ({col_name})")
+
+            # Validate old_percentage column (column 7, should be > 0 and not null)
             if validation_result['valid']:
-                old_delivered_per = df["old_delivered_per"].dropna()
-                if old_delivered_per.empty:
+                old_percentage = df.iloc[:, 7].dropna()
+                if old_percentage.empty:
                     validation_result['valid'] = False
-                    validation_result['errors'].append("old_delivered_per column contains null values")
-                elif not (old_delivered_per > 0).all():
+                    validation_result['errors'].append("OldPercentage column (column 8) contains null values")
+                elif not (old_percentage > 0).all():
                     validation_result['valid'] = False
-                    validation_result['errors'].append("old_delivered_per values should be greater than 0")
+                    validation_result['errors'].append("OldPercentage values should be greater than 0")
 
-            # Check for required columns presence
-            required_columns = ["segment", "sub_seg", "decile"]
-            for col in required_columns:
-                if df[col].isnull().all():
+            # Check for required columns presence (columns 4,5,6: Segment, SubSegment, Decile)
+            required_col_indices = [4, 5, 6]
+            required_col_names = ["Segment", "SubSegment", "Decile"]
+
+            for idx, col_name in zip(required_col_indices, required_col_names):
+                if df.iloc[:, idx].isnull().all():
                     validation_result['valid'] = False
-                    validation_result['errors'].append(f"Required column '{col}' is empty")
+                    validation_result['errors'].append(f"Required column '{col_name}' (column {idx+1}) is empty")
 
         except UnicodeDecodeError:
             validation_result['valid'] = False
@@ -292,17 +297,14 @@ class FileValidationService:
             return validation_result
 
         try:
-            # First, count total rows including header
+            # Read CSV with header row
             content_str = file_content.decode('utf-8')
-            total_lines = len([line for line in content_str.split('\n') if line.strip()])
 
-            # Detect delimiter for timestamp files (they might use tabs instead of pipes)
+            # Detect delimiter (timestamp files might use tabs instead of pipes)
             sample_lines = content_str.split('\n')[:3]
             sample_text = '\n'.join(sample_lines)
-
-            # Common delimiters to check for timestamp files
             delimiters = ['\t', '|', ',', ';']
-            detected_delimiter = '\t'  # Default to tab for timestamp files
+            detected_delimiter = '\t'  # Default to tab
             max_columns = 0
 
             for delimiter in delimiters:
@@ -314,14 +316,11 @@ class FileValidationService:
                 except:
                     continue
 
-            logger.info(f"Detected delimiter for timestamp file: '{detected_delimiter}' ({repr(detected_delimiter)})")
-
-            # Try to read as CSV with detected delimiter and headers
+            # Read with detected delimiter and header=0 (skip header row)
             df = pd.read_csv(io.StringIO(content_str), sep=detected_delimiter, header=0)
 
-            # Report total rows (including header) instead of just data rows
-            validation_result['file_info']['rows'] = total_lines  # Total rows including header
-            validation_result['file_info']['data_rows'] = len(df)  # Data rows only
+            # Validate column count ONLY (no header name validation)
+            validation_result['file_info']['rows'] = len(df)  # Data rows
             validation_result['file_info']['columns'] = len(df.columns)
 
             # Check if file is empty
@@ -330,52 +329,50 @@ class FileValidationService:
                 validation_result['errors'].append("Timestamp report has no data rows")
                 return validation_result
 
-            # Check minimum columns (should have at least 3 date columns)
-            if len(df.columns) < 3:
+            # Check column count (should have exactly 3 columns)
+            if len(df.columns) != 3:
                 validation_result['valid'] = False
-                validation_result['errors'].append("Timestamp report should have at least 3 columns for date validation")
+                validation_result['errors'].append(f"Timestamp report should have exactly 3 columns, found {len(df.columns)}")
                 return validation_result
 
-            # Validate timestamp date consistency (first 3 columns should be date-related)
+            # Use positional column references
+            # Column positions: 0=DeliveryDate (YYYY-MM-DD), 1=StartTime (YYYY-MM-DD HH:MM:SS),
+            #                   2=EndTime (YYYY-MM-DD HH:MM:SS)
+
+            # Validate formats
             try:
-                # First column validation: must be YYYY-MM-DD format
+                # Column 0: must be YYYY-MM-DD format
                 col1_values = df.iloc[:, 0].astype(str)
                 date_pattern = r'^\d{4}-\d{2}-\d{2}$'
+                invalid_col1 = ~col1_values.str.match(date_pattern, na=False)
 
-                invalid_col1_dates = ~col1_values.str.match(date_pattern, na=False)
-                if invalid_col1_dates.any():
-                    invalid_count = invalid_col1_dates.sum()
+                if invalid_col1.any():
                     validation_result['valid'] = False
-                    validation_result['errors'].append(f"Column 1 must be in YYYY-MM-DD format. Found {invalid_count} invalid dates.")
+                    validation_result['errors'].append(f"Column 1 must be in YYYY-MM-DD format. Found {invalid_col1.sum()} invalid dates.")
                     return validation_result
 
-                # Columns 2 and 3 validation: must be YYYY-MM-DD hh:mm:ss format
+                # Columns 1 and 2: must be YYYY-MM-DD HH:MM:SS format
                 datetime_pattern = r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
 
-                if len(df.columns) >= 2:
-                    col2_values = df.iloc[:, 1].astype(str)
-                    invalid_col2_datetime = ~col2_values.str.match(datetime_pattern, na=False)
-                    if invalid_col2_datetime.any():
-                        invalid_count = invalid_col2_datetime.sum()
-                        validation_result['valid'] = False
-                        validation_result['errors'].append(f"Column 2 (starttime) must be in YYYY-MM-DD hh:mm:ss format. Found {invalid_count} invalid timestamps.")
-                        return validation_result
+                col2_values = df.iloc[:, 1].astype(str)
+                invalid_col2 = ~col2_values.str.match(datetime_pattern, na=False)
+                if invalid_col2.any():
+                    validation_result['valid'] = False
+                    validation_result['errors'].append(f"Column 2 (StartTime) must be in YYYY-MM-DD HH:MM:SS format. Found {invalid_col2.sum()} invalid timestamps.")
+                    return validation_result
 
-                if len(df.columns) >= 3:
-                    col3_values = df.iloc[:, 2].astype(str)
-                    invalid_col3_datetime = ~col3_values.str.match(datetime_pattern, na=False)
-                    if invalid_col3_datetime.any():
-                        invalid_count = invalid_col3_datetime.sum()
-                        validation_result['valid'] = False
-                        validation_result['errors'].append(f"Column 3 (endtime) must be in YYYY-MM-DD hh:mm:ss format. Found {invalid_count} invalid timestamps.")
-                        return validation_result
+                col3_values = df.iloc[:, 2].astype(str)
+                invalid_col3 = ~col3_values.str.match(datetime_pattern, na=False)
+                if invalid_col3.any():
+                    validation_result['valid'] = False
+                    validation_result['errors'].append(f"Column 3 (EndTime) must be in YYYY-MM-DD HH:MM:SS format. Found {invalid_col3.sum()} invalid timestamps.")
+                    return validation_result
 
-                # Now validate the parsed dates for consistency
+                # Validate date consistency across all 3 columns
                 col1_dates = pd.to_datetime(df.iloc[:, 0])
                 col2_dates = pd.to_datetime(df.iloc[:, 1])
                 col3_dates = pd.to_datetime(df.iloc[:, 2])
 
-                # Check if dates match as per requestValidation.py logic
                 dates_match = (
                     (col1_dates == col2_dates.dt.date) &
                     (col2_dates.dt.date == col3_dates.dt.date)
@@ -383,30 +380,13 @@ class FileValidationService:
 
                 if not dates_match:
                     validation_result['valid'] = False
-                    validation_result['errors'].append("Date consistency failed: dates across first 3 columns do not match")
-                else:
-                    validation_result['file_info']['date_validation'] = 'passed'
-                    validation_result['file_info']['format_validation'] = 'passed'
+                    validation_result['errors'].append("Date consistency failed: dates in column 1 must match dates in columns 2 and 3")
+                    return validation_result
 
             except Exception as date_error:
                 validation_result['valid'] = False
                 validation_result['errors'].append(f"Timestamp format validation failed: {str(date_error)}")
 
-            # Improved timestamp-related column name detection
-            column_names = [col.lower().replace(' ', '').replace('_', '') for col in df.columns]
-            timestamp_indicators = ['timestamp', 'time', 'date', 'created', 'sent', 'delivered', 'deldate', 'starttime', 'endtime']
-
-            detected_indicators = []
-            for col in column_names:
-                for indicator in timestamp_indicators:
-                    if indicator in col:
-                        detected_indicators.append(indicator)
-                        break
-
-            if len(detected_indicators) > 0:
-                validation_result['file_info']['detected_time_columns'] = detected_indicators
-            else:
-                validation_result['warnings'].append("No obvious timestamp-related column names detected")
 
         except UnicodeDecodeError:
             validation_result['valid'] = False
@@ -425,7 +405,7 @@ class FileValidationService:
         Args:
             file_content: File content as bytes
             filename: Original filename
-            file_type: Type of file ('cpm', 'decile', 'timestamp')
+            file_type: Type of file ('cpm', 'decile', 'unique_decile', 'timestamp')
 
         Returns:
             Dict with validation results
@@ -434,7 +414,8 @@ class FileValidationService:
 
         if file_type == 'cpm':
             return self.validate_cpm_report(file_content, filename)
-        elif file_type == 'decile':
+        elif file_type == 'decile' or file_type == 'unique_decile':
+            # Both decile and unique_decile have the same structure (8 columns)
             return self.validate_decile_report(file_content, filename)
         elif file_type == 'timestamp':
             return self.validate_timestamp_report(file_content, filename)
@@ -474,23 +455,20 @@ class FileValidationService:
                         content_str = content.decode('utf-8')
 
                         if file_type == 'cpm':
-                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
-                            if len(df.columns) >= 14:
-                                df.columns = [
-                                    "Campaign", "Date", "Delivered", "Unique Opens", "Clicks",
-                                    "Unsubs", "sb", "hb", "Subject Line", "Creative",
-                                    "Creative ID", "Offer ID", "segment", "sub_seg"
-                                ]
+                            # Read with header=0 (skip header row)
+                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
+                            if len(df.columns) == 14:
                                 parsed_files['cpm'] = df
+                            else:
+                                cross_validation_result['warnings'].append(f"CPM file has {len(df.columns)} columns, expected 14")
 
-                        elif file_type == 'decile':
-                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
-                            if len(df.columns) >= 8:
-                                df.columns = [
-                                    "Delivered", "Opens", "clicks", "unsubs",
-                                    "segment", "sub_seg", "decile", "old_delivered_per"
-                                ]
-                                parsed_files['decile'] = df
+                        elif file_type == 'decile' or file_type == 'unique_decile':
+                            # Read with header=0 (skip header row)
+                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
+                            if len(df.columns) == 8:
+                                parsed_files[file_type] = df
+                            else:
+                                cross_validation_result['warnings'].append(f"{file_type} file has {len(df.columns)} columns, expected 8")
 
                         elif file_type == 'timestamp':
                             # Auto-detect delimiter for timestamp files
@@ -524,26 +502,54 @@ class FileValidationService:
                 decile_df = parsed_files['decile']
 
                 try:
-                    # Check segment matching
-                    cpm_segments = cpm_df["segment"].drop_duplicates().sort_values().reset_index(drop=True)
-                    decile_segments = decile_df["segment"].drop_duplicates().sort_values().reset_index(drop=True)
+                    # Get unique (Segment, SubSegment) combinations from both reports
+                    # Use column indices: 12=Segment, 13=SubSegment for CPM
+                    #                     4=Segment, 5=SubSegment for Decile
+                    cpm_combinations = set(
+                        tuple(x) for x in cpm_df.iloc[:, [12, 13]].drop_duplicates().values
+                    )
+                    decile_combinations = set(
+                        tuple(x) for x in decile_df.iloc[:, [4, 5]].drop_duplicates().values
+                    )
 
-                    segments_match = (cpm_segments == decile_segments).all() if len(cpm_segments) == len(decile_segments) else False
-
-                    # Check sub_seg matching
-                    cpm_subseg = cpm_df["sub_seg"].drop_duplicates().sort_values().reset_index(drop=True)
-                    decile_subseg = decile_df["sub_seg"].drop_duplicates().sort_values().reset_index(drop=True)
-
-                    subseg_match = (cpm_subseg == decile_subseg).all() if len(cpm_subseg) == len(decile_subseg) else False
-
-                    if not (segments_match and subseg_match):
+                    # Check if sets are identical
+                    if cpm_combinations == decile_combinations:
+                        logger.info("✅ Segments and sub-segments match exactly between CPM and Decile reports")
+                    else:
                         cross_validation_result['valid'] = False
-                        cross_validation_result['errors'].append("Segments and sub-segments between CPM and Decile reports do not match")
+                        cross_validation_result['errors'].append("CPM - Decile - Segment Comparison: Failed")
 
                 except Exception as e:
                     cross_validation_result['warnings'].append(f"Could not validate segment matching: {str(e)}")
 
-            # Cross-validation 2: Timestamp first column dates vs CPM report dates
+            # Cross-validation 2: Unique Decile and Decile matching (OPTIONAL - Type 2 only)
+            if 'unique_decile' in parsed_files and 'decile' in parsed_files:
+                cross_validation_result['validations_performed'].append('Unique-Decile-Decile Matching')
+
+                unique_decile_df = parsed_files['unique_decile']
+                decile_df = parsed_files['decile']
+
+                try:
+                    # Get unique (Segment, SubSegment, Decile, OldPercentage) combinations
+                    # Columns 4,5,6,7 for both reports
+                    unique_decile_combinations = set(
+                        tuple(x) for x in unique_decile_df.iloc[:, [4, 5, 6, 7]].drop_duplicates().values
+                    )
+                    decile_combinations = set(
+                        tuple(x) for x in decile_df.iloc[:, [4, 5, 6, 7]].drop_duplicates().values
+                    )
+
+                    # Check if unique_decile is a subset of decile
+                    if unique_decile_combinations.issubset(decile_combinations):
+                        logger.info("✅ Unique Decile and Decile reports match exactly")
+                    else:
+                        cross_validation_result['valid'] = False
+                        cross_validation_result['errors'].append("Unique Decile - Decile - Comparison: Failed")
+
+                except Exception as e:
+                    cross_validation_result['warnings'].append(f"Could not validate unique decile matching: {str(e)}")
+
+            # Cross-validation 3: Timestamp first column dates vs CPM report dates
             if 'timestamp' in parsed_files and 'cpm' in parsed_files:
                 cross_validation_result['validations_performed'].append('Timestamp-CPM Date Matching')
 
@@ -551,35 +557,37 @@ class FileValidationService:
                 cpm_df = parsed_files['cpm']
 
                 try:
-                    # Get timestamp dates (first column)
-                    timestamp_dates = pd.to_datetime(timestamp_df.iloc[:, 0]).dt.date
-                    timestamp_date_range = {
-                        'min': timestamp_dates.min(),
-                        'max': timestamp_dates.max()
-                    }
+                    # Get unique dates from timestamp report (column 0)
+                    timestamp_dates = set(pd.to_datetime(timestamp_df.iloc[:, 0]).dt.date)
+                    logger.info(f"🔍 Timestamp delivered dates: {sorted(timestamp_dates)}")
 
-                    # Get CPM report dates
-                    cmp_dates = pd.to_datetime(cpm_df["Date"]).dt.date
-                    cpm_date_range = {
-                        'min': cmp_dates.min(),
-                        'max': cmp_dates.max()
-                    }
+                    # Get unique dates from CPM report (column 1)
+                    cpm_dates = set(pd.to_datetime(cpm_df.iloc[:, 1]).dt.date)
+                    logger.info(f"🔍 CPM delivered dates: {sorted(cpm_dates)}")
 
-                    # Check if date ranges overlap or are compatible
-                    dates_compatible = (
-                        timestamp_date_range['min'] <= cpm_date_range['max'] and
-                        timestamp_date_range['max'] >= cpm_date_range['min']
-                    )
-
-                    if not dates_compatible:
+                    # Check if date sets are identical
+                    if timestamp_dates == cpm_dates:
+                        logger.info("✅ Delivered dates match exactly between Timestamp and CPM reports")
+                    else:
                         cross_validation_result['valid'] = False
-                        cross_validation_result['errors'].append(
-                            f"Timestamp date range ({timestamp_date_range['min']} to {timestamp_date_range['max']}) "
-                            f"does not overlap with CPM report date range ({cpm_date_range['min']} to {cpm_date_range['max']})"
-                        )
+                        missing_in_cpm = timestamp_dates - cpm_dates
+                        missing_in_timestamp = cpm_dates - timestamp_dates
+
+                        error_msg = f"❌ Delivered dates do not match exactly between Timestamp and CPM reports. Missing in CPM: {sorted(missing_in_cpm)}. Missing in Timestamp: {sorted(missing_in_timestamp)}"
+                        logger.error(error_msg)
+                        cross_validation_result['errors'].append("CPM - TimeStamp - Date Comparison: Failed")
 
                 except Exception as e:
                     cross_validation_result['warnings'].append(f"Could not validate date matching: {str(e)}")
+
+            # Log final result
+            if cross_validation_result['valid']:
+                logger.info("🔍 Cross-validation PASSED")
+                logger.info(f"   Validations performed: {cross_validation_result['validations_performed']}")
+            else:
+                logger.info("🔍 Cross-validation FAILED")
+                logger.info(f"   Validations performed: {cross_validation_result['validations_performed']}")
+                logger.error(f"   Errors: {cross_validation_result['errors']}")
 
         except Exception as e:
             logger.error(f"Error in cross-validation: {e}")

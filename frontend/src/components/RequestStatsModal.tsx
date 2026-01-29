@@ -106,10 +106,14 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
     try {
       const response = await requestService.downloadRequestStats(requestId);
 
+      console.log('📥 Download response received:', response);
+
       // Create blob and download
       const blob = new Blob([response], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
+
+      console.log('📦 Blob created:', blob.size, 'bytes');
 
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -119,9 +123,16 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error downloading stats:', error);
-      setError('Failed to download statistics');
+
+      console.log('✅ Download triggered successfully');
+    } catch (error: any) {
+      console.error('❌ Error downloading stats:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        response: error.response,
+        stack: error.stack
+      });
+      setError(`Failed to download statistics: ${error.message || 'Unknown error'}`);
     } finally {
       setDownloadLoading(false);
     }

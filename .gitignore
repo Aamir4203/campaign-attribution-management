@@ -8,6 +8,13 @@ node_modules/
 dist/
 build/
 
+# Deployment logs and runtime files
+logs/
+pids/
+*.pid
+*.log
+nohup.out
+
 # Environment files
 .env
 .env.local

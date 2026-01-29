@@ -34,13 +34,32 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response: AxiosResponse) => {
     if (configService.isDebug()) {
-      console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, response.data);
+      // Don't log blob data (binary files)
+      if (response.config.responseType === 'blob') {
+        console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`,
+          `[Blob: ${response.data.size} bytes]`);
+      } else {
+        console.log(`✅ API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, response.data);
+      }
     }
     return response;
   },
   (error) => {
     if (configService.isDebug()) {
-      console.error('❌ API Response Error:', error.response?.data || error.message);
+      // For blob responses, error.response.data might be a Blob
+      if (error.response?.config?.responseType === 'blob' && error.response?.data instanceof Blob) {
+        // Convert blob error to text for logging
+        error.response.data.text().then((text: string) => {
+          try {
+            const errorData = JSON.parse(text);
+            console.error('❌ API Response Error:', errorData);
+          } catch {
+            console.error('❌ API Response Error:', text);
+          }
+        });
+      } else {
+        console.error('❌ API Response Error:', error.response?.data || error.message);
+      }
     }
 
     // Handle common error cases

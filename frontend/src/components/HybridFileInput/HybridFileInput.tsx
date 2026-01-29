@@ -12,8 +12,10 @@ interface HybridFileInputProps {
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
-  onFileUploaded?: (filePath: string) => void; // New callback for when file is uploaded
-  fileType?: 'timestamp' | 'cpm' | 'decile';
+  onFileUploaded?: (filePath: string) => void; // Legacy callback for when file is uploaded
+  onFileValidated?: (filePath: string, isValid: boolean, error: string | null) => void; // Callback with validation status
+  onValidationError?: (error: string) => void; // Callback for validation errors
+  fileType?: 'timestamp' | 'cpm' | 'decile' | 'unique_decile';
   clientName?: string;
   weekName?: string;
   error?: string;
@@ -29,6 +31,8 @@ const HybridFileInput: React.FC<HybridFileInputProps> = ({
   value,
   onChange,
   onFileUploaded,
+  onFileValidated,
+  onValidationError,
   fileType,
   clientName = '',
   weekName = '',
@@ -38,6 +42,7 @@ const HybridFileInput: React.FC<HybridFileInputProps> = ({
 }) => {
   const [mode, setMode] = useState<InputMode>('upload');
   const [uploadError, setUploadError] = useState<string>('');
+  const [isFileSelected, setIsFileSelected] = useState(false);
 
   // Check if upload feature is available
   const isUploadEnabled = featureFlagService.isFileUploadEnabled();
@@ -117,15 +122,45 @@ const HybridFileInput: React.FC<HybridFileInputProps> = ({
             clientName={clientName}
             weekName={weekName}
             onFileValidated={(filePath) => {
+              console.log(`✅ HybridFileInput: File uploaded successfully - ${fileType}`, filePath);
               onChange(filePath);
               setUploadError('');
-              // Notify parent that file was uploaded
+              setIsFileSelected(false); // Reset after successful upload
+
+              // Notify parent that file was uploaded AND validated successfully
+              if (onFileValidated) {
+                console.log(`📞 Calling onFileValidated for ${fileType} with isValid=true`);
+                onFileValidated(filePath, true, null);
+              }
+
+              // Legacy callback support
               if (onFileUploaded) {
                 onFileUploaded(filePath);
               }
             }}
             onValidationError={(error) => {
+              console.log(`❌ HybridFileInput: Validation error for ${fileType}:`, error);
               setUploadError(error);
+
+              // If user is RE-SELECTING a file after previous error, don't immediately fail parent state
+              // This allows them to select a new file and try again
+              if (!isFileSelected && error) {
+                // First time error - notify parent
+                if (onValidationError) {
+                  console.log(`📞 Calling onValidationError for ${fileType}`);
+                  onValidationError(error);
+                }
+
+                // Also notify via onFileValidated with isValid=false
+                if (onFileValidated) {
+                  console.log(`📞 Calling onFileValidated for ${fileType} with isValid=false`);
+                  onFileValidated('', false, error);
+                }
+              } else if (isFileSelected) {
+                // New file selected - clear parent's old error state to allow retry
+                console.log(`🔄 New file selected, clearing parent error state for ${fileType}`);
+                setIsFileSelected(false);
+              }
             }}
             disabled={disabled}
             className="w-full"
