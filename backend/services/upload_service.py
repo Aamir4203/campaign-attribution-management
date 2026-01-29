@@ -105,6 +105,35 @@ class UploadService:
         cleaned = cleaned.strip('_')
         return cleaned
     
+    def _convert_to_unix_line_endings(self, content: bytes) -> bytes:
+        """
+        Convert Windows (CRLF) line endings to Unix (LF) line endings.
+        Similar to dos2unix conversion.
+
+        Args:
+            content: File content as bytes
+
+        Returns:
+            Content with Unix line endings
+        """
+        try:
+            # Decode content
+            content_str = content.decode('utf-8')
+
+            # Replace CRLF (\r\n) with LF (\n)
+            # Also handle any standalone CR (\r) just in case
+            unix_content = content_str.replace('\r\n', '\n').replace('\r', '\n')
+
+            logger.info("Converted line endings to Unix format (CRLF -> LF)")
+
+            # Re-encode to bytes
+            return unix_content.encode('utf-8')
+
+        except Exception as e:
+            logger.error(f"Error converting line endings: {e}")
+            # Return original content if conversion fails
+            return content
+
     def _convert_apostrophes_for_postgres(self, content: bytes, file_type: str) -> bytes:
         """
         Convert single apostrophes to double apostrophes for PostgreSQL compatibility.
@@ -141,14 +170,15 @@ class UploadService:
     def save_file(self, file_content: bytes, file_type: str, client_name: str, week_name: str, original_filename: str = None) -> Dict[str, Any]:
         """
         Save uploaded file to storage with proper naming.
-        
+        Automatically converts Windows (CRLF) line endings to Unix (LF) format.
+
         Args:
             file_content: File content as bytes
             file_type: Type of file ('timestamp', 'cpm', 'decile')
             client_name: Client name from form
             week_name: Week name from form
             original_filename: Original uploaded filename (optional)
-            
+
         Returns:
             Dict with save results including file path
         """
@@ -164,9 +194,12 @@ class UploadService:
             # Generate filename
             filename = self.generate_filename(file_type, client_name, week_name)
             result['filename'] = filename
-            
-            # Convert apostrophes for PostgreSQL compatibility if needed
-            processed_content = self._convert_apostrophes_for_postgres(file_content, file_type)
+
+            # Step 1: Convert line endings to Unix format (dos2unix)
+            processed_content = self._convert_to_unix_line_endings(file_content)
+
+            # Step 2: Convert apostrophes for PostgreSQL compatibility if needed
+            processed_content = self._convert_apostrophes_for_postgres(processed_content, file_type)
 
             # Create full path
             file_path = Path(self.base_path) / filename
