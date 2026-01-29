@@ -475,24 +475,65 @@ def update_request(request_id):
         update_fields = []
         update_values = []
 
-        # Map frontend field names to database columns
+        # Map frontend field names to database columns (matching what frontend sends)
         field_mapping = {
-            'reportpath': 'report_path',
-            'qspath': 'qs_path',
+            # File paths
+            'file_path': 'unique_decile_report_path',
+            'report_path': 'cpm_report_path',
+            'decile_report_path': 'decile_wise_report_path',
+            'timestamp_report_path': 'timestamp_report_path',
+            'supp_path': 'supp_path',
+            'priority_file': 'priority_file',
+
+            # Dates
+            'start_date': 'from_date',
+            'end_date': 'end_date',
+            'residual_start': 'residual_date',
+
+            # Basic fields
+            'week': 'week',
+            'query': 'query',
+            'added_by': 'added_by',
+
+            # Y/N flags
+            'timestamp_append': 'timestamp_append',
+            'ip_append': 'ip_append',
+            'offerid_unsub_supp': 'offerid_unsub_supp',
+            'include_bounce_as_delivered': 'include_bounce_as_delivered',
+
+            # Other fields
+            'request_id_supp': 'request_id_supp',
+            'priority_file_per': 'priority_file_per',
+
+            # Legacy field names (for backwards compatibility)
+            'reportpath': 'cpm_report_path',
+            'qspath': 'decile_wise_report_path',
             'timeStampPath': 'timestamp_report_path',
-            'clientSuppression': 'client_suppression',
-            'requestIdSuppression': 'request_id_supp',
-            'priorityFile': 'priority_file',
+            'clientSuppressionPath': 'supp_path',
+            'requestIdSuppressionList': 'request_id_supp',
             'priorityFilePercentage': 'priority_file_per',
             'oldDeliveredPercentage': 'old_delivered_per'
         }
 
         # Add updatable fields from request data
         for frontend_field, db_column in field_mapping.items():
-            if frontend_field in data:
+            if frontend_field in data and data[frontend_field] is not None:
                 update_fields.append(f"{db_column} = %s")
                 update_values.append(data[frontend_field])
                 logger.info(f"   📝 Updating {db_column}: {data[frontend_field]}")
+
+        # Handle request_type -> type conversion
+        if 'request_type' in data:
+            update_fields.append("type = %s")
+            update_values.append(int(data['request_type']))
+            logger.info(f"   📝 Updating type: {data['request_type']}")
+
+        # Handle file_type -> on_sent conversion ('Sent' = Y, 'Delivered' = N)
+        if 'file_type' in data:
+            on_sent_value = 'Y' if data['file_type'] == 'Sent' else 'N'
+            update_fields.append("on_sent = %s")
+            update_values.append(on_sent_value)
+            logger.info(f"   📝 Updating on_sent: {on_sent_value} (from file_type: {data['file_type']})")
 
         # Always update rerun-related fields
         update_fields.extend([

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { requestService } from '../services/requestService';
-import { MdClose, MdDownload, MdAdd } from 'react-icons/md';
+import { MdClose, MdDownload, MdAdd, MdExpandMore, MdExpandLess } from 'react-icons/md';
 
 interface MetricsModalProps {
   isOpen: boolean;
@@ -36,6 +36,7 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedQueries, setExpandedQueries] = useState<Set<number>>(new Set());
 
   // Define excluded columns
   const excludedColumns = ['status', 'unsub', 'id', 'diff', 'offerid', 'ip', 'timestamp', 'file_status', 'md5hash'];
@@ -97,7 +98,20 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
   };
 
   const addCustomQuery = () => {
+    const newIndex = customQueries.length;
     setCustomQueries([...customQueries, { columns: [], groupByColumns: [] }]);
+    // Collapse all existing queries and expand only the new one
+    setExpandedQueries(new Set([newIndex]));
+  };
+
+  const toggleQueryExpansion = (index: number) => {
+    const newExpanded = new Set(expandedQueries);
+    if (newExpanded.has(index)) {
+      newExpanded.delete(index);
+    } else {
+      newExpanded.add(index);
+    }
+    setExpandedQueries(newExpanded);
   };
 
   const updateQueryColumn = (queryIndex: number, columnName: string, selected: boolean) => {
@@ -205,6 +219,17 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
   const removeCustomQuery = (index: number) => {
     const updatedQueries = customQueries.filter((_, i) => i !== index);
     setCustomQueries(updatedQueries);
+
+    // Update expanded queries - remove the deleted index and adjust remaining indices
+    const newExpanded = new Set<number>();
+    expandedQueries.forEach(expandedIndex => {
+      if (expandedIndex < index) {
+        newExpanded.add(expandedIndex);
+      } else if (expandedIndex > index) {
+        newExpanded.add(expandedIndex - 1);
+      }
+    });
+    setExpandedQueries(newExpanded);
   };
 
   if (!isOpen) return null;
@@ -336,77 +361,114 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
                   </div>
                 )}
 
-                {customQueries.map((query, queryIndex) => (
-                  <div key={queryIndex} className="bg-gray-50 p-4 rounded-lg mb-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h5 className="font-medium text-gray-700">Custom Query {queryIndex + 1}</h5>
-                      <button
-                        onClick={() => removeCustomQuery(queryIndex)}
-                        className="text-red-500 hover:text-red-700 text-sm"
-                      >
-                        Remove
-                      </button>
-                    </div>
+                {customQueries.map((query, queryIndex) => {
+                  const isExpanded = expandedQueries.has(queryIndex);
+                  const hasColumns = query.columns.length > 0;
 
-                    <div className="grid grid-cols-3 gap-4">
-                      {/* Regular available columns */}
-                      {availableColumns.map((column) => {
-                        const isSelected = query.columns.some(col => col.name === column);
-                        const specialCol = specialColumns[column];
-
-                        return (
-                          <label key={column} className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => updateQueryColumn(queryIndex, column, e.target.checked)}
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                            <span className="text-sm text-gray-700">
-                              {column}
-                              {specialCol && (
-                                <span className="text-blue-600 text-xs ml-1">
-                                  → {specialCol.alias}
-                                </span>
+                  return (
+                    <div key={queryIndex} className="bg-gray-50 p-4 rounded-lg mb-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-2">
+                          <h5 className="font-medium text-gray-700">Custom Query {queryIndex + 1}</h5>
+                          {hasColumns && (
+                            <span className="text-xs text-gray-500">
+                              ({query.columns.length} column{query.columns.length !== 1 ? 's' : ''})
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          {hasColumns && (
+                            <button
+                              onClick={() => toggleQueryExpansion(queryIndex)}
+                              className="text-blue-600 hover:text-blue-800 flex items-center space-x-1 text-sm"
+                              title={isExpanded ? 'Collapse' : 'Expand'}
+                            >
+                              {isExpanded ? (
+                                <>
+                                  <MdExpandLess className="h-5 w-5" />
+                                  <span>Collapse</span>
+                                </>
+                              ) : (
+                                <>
+                                  <MdExpandMore className="h-5 w-5" />
+                                  <span>Expand</span>
+                                </>
                               )}
-                            </span>
-                          </label>
-                        );
-                      })}
-
-                      {/* Special flag columns */}
-                      {flagColumns.map((flagCol) => {
-                        const isSelected = query.columns.some(col => col.name === flagCol.name);
-
-                        return (
-                          <label key={flagCol.name} className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => updateQueryColumn(queryIndex, flagCol.name, e.target.checked)}
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                            <span className="text-sm text-gray-700">
-                              {flagCol.alias}
-                              <span className="text-blue-600 text-xs ml-1">
-                                (flag)
-                              </span>
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-
-                    {query.columns.length > 0 && (
-                      <div className="mt-3">
-                        <h6 className="text-sm font-medium text-gray-600 mb-2">Generated Query:</h6>
-                        <code className="text-xs text-gray-600 bg-white p-2 rounded border block overflow-x-auto">
-                          {generateCustomQuery(query)}
-                        </code>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => removeCustomQuery(queryIndex)}
+                            className="text-red-500 hover:text-red-700 text-sm"
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+
+                      {/* Show checkboxes only when expanded OR when query has no columns */}
+                      {(isExpanded || !hasColumns) && (
+                        <div className="grid grid-cols-3 gap-4 mb-3">
+                          {/* Regular available columns */}
+                          {availableColumns.map((column) => {
+                            const isSelected = query.columns.some(col => col.name === column);
+                            const specialCol = specialColumns[column];
+
+                            return (
+                              <label key={column} className="flex items-center space-x-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => updateQueryColumn(queryIndex, column, e.target.checked)}
+                                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                />
+                                <span className="text-sm text-gray-700">
+                                  {column}
+                                  {specialCol && (
+                                    <span className="text-blue-600 text-xs ml-1">
+                                      → {specialCol.alias}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+
+                          {/* Special flag columns */}
+                          {flagColumns.map((flagCol) => {
+                            const isSelected = query.columns.some(col => col.name === flagCol.name);
+
+                            return (
+                              <label key={flagCol.name} className="flex items-center space-x-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => updateQueryColumn(queryIndex, flagCol.name, e.target.checked)}
+                                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                />
+                                <span className="text-sm text-gray-700">
+                                  {flagCol.alias}
+                                  <span className="text-blue-600 text-xs ml-1">
+                                    (flag)
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Always show generated query if columns are selected */}
+                      {hasColumns && (
+                        <div className="mt-3">
+                          <h6 className="text-sm font-medium text-gray-600 mb-2">Generated Query:</h6>
+                          <code className="text-xs text-gray-600 bg-white p-2 rounded border block overflow-x-auto">
+                            {generateCustomQuery(query)}
+                          </code>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
 
                 {customQueries.length === 0 && !loading && (
                   <div className="text-center py-8 text-gray-500">
