@@ -156,3 +156,7 @@ temp/
 # Backup files
 *.bak
 *.backup
+
+# Snowflake private keys
+backend/.snowflake/
+*.p8
