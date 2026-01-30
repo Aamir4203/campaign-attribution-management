@@ -22,6 +22,15 @@ snowflake_bp = Blueprint('snowflake', __name__)
 # Progress tracker
 progress_tracker = get_progress_tracker()
 
+# Upload concurrency limiter (semaphore to prevent RAM exhaustion)
+sf_config = config.get_snowflake_config()
+max_concurrent = sf_config['upload'].get('max_concurrent_uploads', 2)
+upload_semaphore = threading.Semaphore(max_concurrent)
+active_uploads_count = 0
+active_uploads_lock = threading.Lock()
+
+logger.info(f"🔒 Snowflake upload concurrency limit: {max_concurrent} simultaneous uploads")
+
 
 # Note: This endpoint is deprecated - frontend now uses /api/tables/<table_name>/columns
 # Keeping for backwards compatibility
@@ -137,6 +146,16 @@ def start_snowflake_upload(request_id):
                 'error': 'client_name and week are required'
             }), 400
 
+        # Check concurrent upload limit
+        global active_uploads_count
+        with active_uploads_lock:
+            if active_uploads_count >= max_concurrent:
+                logger.warning(f"⚠️ Upload limit reached: {active_uploads_count}/{max_concurrent} active uploads")
+                return jsonify({
+                    'success': False,
+                    'error': f'Maximum concurrent uploads ({max_concurrent}) reached. Please wait for an upload to complete.'
+                }), 429  # 429 Too Many Requests
+
         # Generate task ID
         task_id = f"sf_upload_{request_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -155,7 +174,10 @@ def start_snowflake_upload(request_id):
         upload_thread.daemon = True
         upload_thread.start()
 
-        logger.info(f"✅ Upload task {task_id} started")
+        with active_uploads_lock:
+            active_uploads_count += 1
+
+        logger.info(f"✅ Upload task {task_id} started ({active_uploads_count}/{max_concurrent} active)")
 
         return jsonify({
             'success': True,
@@ -319,11 +341,67 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
         file_size_mb = file_result.get('file_size', 0) / (1024 * 1024)
         logger.info(f"🎉 Upload completed successfully: {row_count:,} rows, {file_size_mb:.2f} MB → {table_name}")
 
+        # Update database with successful upload status
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                requests_table = config.get_table_name('requests')
+
+                update_sql = f"""
+                    UPDATE {requests_table}
+                    SET sf_upload_status = 'success',
+                        sf_table_name = %s,
+                        sf_upload_time = NOW()
+                    WHERE request_id = %s
+                """
+
+                cursor.execute(update_sql, (table_name, request_id))
+                conn.commit()
+                cursor.close()
+                release_db_connection(conn)
+
+                logger.info(f"✅ Updated database with upload status for request {request_id}")
+        except Exception as db_error:
+            logger.error(f"⚠️ Failed to update database with upload status: {db_error}")
+
     except Exception as e:
         logger.error(f"❌ Upload task {task_id} failed: {e}")
         progress_tracker.fail_task(task_id, str(e))
 
+        # Update database with failed upload status (store error in request_desc)
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                requests_table = config.get_table_name('requests')
+
+                error_message = f"Snowflake upload failed: {str(e)[:450]}"
+
+                update_sql = f"""
+                    UPDATE {requests_table}
+                    SET sf_upload_status = 'failed',
+                        sf_upload_time = NOW(),
+                        request_desc = %s
+                    WHERE request_id = %s
+                """
+
+                cursor.execute(update_sql, (error_message, request_id))
+                conn.commit()
+                cursor.close()
+                release_db_connection(conn)
+
+                logger.info(f"✅ Updated database with failed status for request {request_id}")
+        except Exception as db_error:
+            logger.error(f"⚠️ Failed to update database with failed status: {db_error}")
+
     finally:
+        # Decrement active upload counter
+        global active_uploads_count
+        with active_uploads_lock:
+            active_uploads_count -= 1
+            logger.info(f"📊 Upload slot released ({active_uploads_count}/{max_concurrent} active)")
+
         # Clean up temporary file
         if file_path:
             try:
@@ -367,6 +445,62 @@ def test_snowflake_connection():
 
     except Exception as e:
         logger.error(f"❌ Connection test failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@snowflake_bp.route('/api/snowflake/upload-status/<int:request_id>', methods=['GET'])
+def get_upload_status(request_id):
+    """Get Snowflake upload status for a request"""
+    logger.info(f"📊 Get upload status for request: {request_id}")
+
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({
+                'success': False,
+                'error': 'Database connection failed'
+            }), 500
+
+        cursor = conn.cursor()
+        requests_table = config.get_table_name('requests')
+
+        query = f"""
+            SELECT sf_upload_status, sf_table_name, sf_upload_time, request_desc
+            FROM {requests_table}
+            WHERE request_id = %s
+        """
+
+        cursor.execute(query, (request_id,))
+        result = cursor.fetchone()
+
+        cursor.close()
+        release_db_connection(conn)
+
+        if not result:
+            return jsonify({
+                'success': False,
+                'error': 'Request not found'
+            }), 404
+
+        upload_status = {
+            'status': result[0],  # NULL, 'success', 'failed'
+            'table_name': result[1],
+            'upload_time': result[2].isoformat() if result[2] else None,
+            'error': result[3] if result[0] == 'failed' else None  # request_desc contains error for failed uploads
+        }
+
+        logger.info(f"✅ Upload status for request {request_id}: {upload_status['status']}")
+
+        return jsonify({
+            'success': True,
+            'upload_status': upload_status
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting upload status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

@@ -326,7 +326,8 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
-                  {getStatusIcon()}
+                  {/* Show icon only when not completed */}
+                  {uploadProgress.status !== 'completed' && getStatusIcon()}
                   <div>
                     <h3 className="text-base font-medium text-gray-900">
                       {uploadProgress.status === 'completed'
@@ -358,17 +359,10 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
 
               {/* Results */}
               {uploadProgress.status === 'completed' && uploadProgress.result && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <MdCheck className="w-6 h-6 text-green-600" />
-                    <h4 className="text-base font-medium text-green-900">Upload Successful!</h4>
-                  </div>
-                  <div className="text-sm text-green-800 space-y-1.5 pl-8">
-                    <p>Table: <strong>{uploadProgress.result.table_name}</strong></p>
-                    <div className="flex items-center space-x-1.5">
-                      <MdCheck className="w-5 h-5 text-green-600" />
-                      <p>Rows Verified: <strong>{uploadProgress.result.rows_verified.toLocaleString()}</strong></p>
-                    </div>
+                <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-1.5">
+                  <div className="text-sm text-gray-600 space-y-1.5">
+                    <p>Table: <strong className="text-gray-700">{uploadProgress.result.table_name}</strong></p>
+                    <p>Total Count: <strong className="text-gray-700">{uploadProgress.result.rows_verified.toLocaleString()}</strong></p>
                   </div>
                 </div>
               )}
@@ -474,6 +468,7 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 hover:shadow-md'
               }`}
+              title="Upload data to Snowflake"
             >
               <MdCloudUpload className="h-5 w-5" />
               <span>Start Upload</span>

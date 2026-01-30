@@ -145,7 +145,7 @@ class SnowflakeService:
 
     def generate_table_name(self, client_name: str, week: str) -> str:
         """
-        Generate Snowflake table name based on template
+        Generate Snowflake table name based on SF_FINAL_TABLE configuration
 
         Args:
             client_name: Client name
@@ -155,12 +155,28 @@ class SnowflakeService:
             Formatted table name
         """
         current_date = datetime.now().strftime('%Y%m%d')
-        table_name = self.sf_config['table']['name_template'].format(
-            client_name=client_name.upper(),
-            week=week.upper(),
-            date=current_date
-        )
-        return table_name + self.sf_config['table']['schema_suffix']
+
+        # Use sf_final_table pattern if configured, otherwise fall back to name_template + suffix
+        if 'sf_final_table' in self.sf_config['table'] and self.sf_config['table']['sf_final_table']:
+            table_pattern = self.sf_config['table']['sf_final_table']
+            logger.info(f"📋 Using SF_FINAL_TABLE pattern: {table_pattern}")
+            table_name = table_pattern.format(
+                client_name=client_name.upper(),
+                week=week.upper(),
+                date=current_date
+            )
+        else:
+            # Fallback to old logic
+            logger.info(f"📋 Using name_template + schema_suffix pattern")
+            table_name = self.sf_config['table']['name_template'].format(
+                client_name=client_name.upper(),
+                week=week.upper(),
+                date=current_date
+            )
+            table_name += self.sf_config['table']['schema_suffix']
+
+        logger.info(f"✅ Generated Snowflake table name: {table_name}")
+        return table_name
 
     def get_column_type(self, column_name: str, is_date_column: bool = False) -> str:
         """

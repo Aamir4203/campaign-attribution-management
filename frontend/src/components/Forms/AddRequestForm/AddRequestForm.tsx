@@ -66,6 +66,11 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const [submitting, setSubmitting] = useState(false);
   const [showAddClient, setShowAddClient] = useState(false);
   const [newClientName, setNewClientName] = useState('');
+  const [filteredClientsInModal, setFilteredClientsInModal] = useState<any[]>([]);
+  const [showConfirmAddClient, setShowConfirmAddClient] = useState(false);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [alertMessage, setAlertMessage] = useState('');
+  const [addingClient, setAddingClient] = useState(false);
   const [showFilePath, setShowFilePath] = useState(false);
   const [showClientSuppressionPath, setShowClientSuppressionPath] = useState(false);
   const [showRequestIdSuppressionList, setShowRequestIdSuppressionList] = useState(false);
@@ -842,19 +847,74 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     }
   };
 
+  // Handle typing in Add Client modal - show autocomplete
+  const handleNewClientNameChange = (value: string) => {
+    setNewClientName(value);
+
+    if (value.trim()) {
+      const matches = clients.filter(client =>
+        client.client_name.toLowerCase().includes(value.toLowerCase())
+      );
+      setFilteredClientsInModal(matches);
+    } else {
+      setFilteredClientsInModal([]);
+    }
+  };
+
+  // Validate and show confirmation when clicking Add Client button
   const handleAddClient = async () => {
-    if (!newClientName.trim()) {
+    const clientName = newClientName.trim();
+
+    if (!clientName) {
+      setAlertMessage('Please enter a client name');
+      setShowAlertModal(true);
       return;
     }
 
+    // Check if client already exists
+    const existingClient = clients.find(
+      client => client.client_name.toLowerCase() === clientName.toLowerCase()
+    );
+
+    if (existingClient) {
+      setAlertMessage(`Client "${clientName}" already exists!`);
+      setShowAlertModal(true);
+      return;
+    }
+
+    // Show confirmation for new client
+    setShowAddClient(false);
+    setShowConfirmAddClient(true);
+  };
+
+  // Confirm and execute add client operation
+  const confirmAddNewClient = async () => {
     try {
-      await ClientService.addClient(newClientName.trim());
-      await loadFormData(); // Reload client list
-      setValue('clientName', newClientName.trim());
-      setShowAddClient(false);
-      setNewClientName('');
-    } catch (error) {
+      setAddingClient(true);
+      setShowConfirmAddClient(false);
+
+      const response = await ClientService.addClient(newClientName.trim());
+
+      if (response.success) {
+        // Reload client list
+        await loadFormData();
+        // Set the new client as selected
+        setValue('clientName', newClientName.trim());
+        setNewClientName('');
+        setFilteredClientsInModal([]);
+
+        setAlertMessage(`Client "${newClientName}" added successfully!`);
+        setShowAlertModal(true);
+      } else {
+        setAlertMessage(response.message || 'Failed to add client');
+        setShowAlertModal(true);
+      }
+    } catch (error: any) {
       console.error('Error adding client:', error);
+      setAlertMessage(error.message || 'Failed to add client');
+      setShowAlertModal(true);
+    } finally {
+      setAddingClient(false);
     }
   };
 
@@ -1794,29 +1854,56 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
       {/* Add Client Modal */}
       {showAddClient && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded p-4 w-80">
-            <h3 className="text-base font-semibold mb-3">Add New Client</h3>
-            <input
-              type="text"
-              value={newClientName}
-              onChange={(e) => setNewClientName(e.target.value)}
-              placeholder="Enter client name"
-              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
-            />
-            <div className="flex justify-end space-x-2">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Add New Client</h3>
+            <div className="relative mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Client Name
+              </label>
+              <input
+                type="text"
+                value={newClientName}
+                onChange={(e) => handleNewClientNameChange(e.target.value)}
+                placeholder="Type client name"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                autoFocus
+              />
+              {/* Autocomplete Dropdown */}
+              {filteredClientsInModal.length > 0 && newClientName.trim() && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  <div className="p-2 bg-yellow-50 border-b border-yellow-200 text-xs text-yellow-800 font-medium">
+                    ⚠️ Matching existing clients:
+                  </div>
+                  {filteredClientsInModal.map((client, idx) => (
+                    <div
+                      key={idx}
+                      className="px-3 py-2 text-sm text-gray-700 border-b border-gray-100 last:border-b-0 bg-gray-50"
+                    >
+                      {client.client_name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end space-x-3">
               <button
                 type="button"
-                onClick={() => setShowAddClient(false)}
-                className="px-3 py-1 text-gray-600 hover:text-gray-800 transition-colors"
+                onClick={() => {
+                  setShowAddClient(false);
+                  setNewClientName('');
+                  setFilteredClientsInModal([]);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleAddClient}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                disabled={addingClient}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Add Client
+                {addingClient ? 'Adding...' : 'Add Client'}
               </button>
             </div>
           </div>
@@ -1880,7 +1967,48 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
         message={flushErrorMessage}
       />
 
-      {/* TODO: Add AlertModal when alert system is properly implemented */}
+      {/* Confirm Add New Client Modal */}
+      {showConfirmAddClient && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Confirm Add New Client</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Client "<strong>{newClientName}</strong>" does not exist. Do you want to add it?
+              <br /><br />
+              <span className="text-xs text-gray-500">This will execute addClient.sh script and create necessary database tables.</span>
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmAddClient(false);
+                  setShowAddClient(true);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                onClick={confirmAddNewClient}
+                disabled={addingClient}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {addingClient ? 'Adding...' : 'Yes, Add Client'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alert Modal */}
+      <AlertModal
+        isOpen={showAlertModal}
+        onClose={() => setShowAlertModal(false)}
+        title={alertMessage.includes('successfully') ? 'Success' : alertMessage.includes('exists') ? 'Client Exists' : 'Notice'}
+        message={alertMessage}
+        type={alertMessage.includes('successfully') ? 'success' : alertMessage.includes('exists') ? 'warning' : 'info'}
+      />
     </div>
   );
 };

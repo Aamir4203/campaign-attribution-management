@@ -7,6 +7,7 @@ Generates pipe-separated files from PostgreSQL postback tables for Snowflake upl
 import os
 import logging
 import tempfile
+import shutil
 from typing import List, Dict, Any, Optional, Callable
 from pathlib import Path
 from db import get_db_connection, release_db_connection
@@ -177,6 +178,14 @@ class FileGenerator:
             temp_dir = self.sf_config['upload'].get('temp_dir', tempfile.gettempdir())
             os.makedirs(temp_dir, exist_ok=True)
 
+            # Check disk space (require at least 5GB free)
+            disk_stats = shutil.disk_usage(temp_dir)
+            free_gb = disk_stats.free / (1024**3)
+            if free_gb < 5:
+                raise Exception(f"Insufficient disk space: {free_gb:.2f}GB free (minimum 5GB required)")
+
+            logger.info(f"💾 Disk space check: {free_gb:.2f}GB available")
+
             temp_file_path = os.path.join(
                 temp_dir,
                 f"sf_upload_{request_id}_{client_name}_{week}_{os.getpid()}.csv"
@@ -187,14 +196,17 @@ class FileGenerator:
             if not conn:
                 raise Exception("Failed to get database connection")
 
-            cursor = conn.cursor()
-
-            # First, get total row count for progress tracking
+            # First, get total row count for progress tracking (use regular cursor)
+            cursor_count = conn.cursor()
             count_query = f"SELECT COUNT(*) FROM {table_name}"
-            cursor.execute(count_query)
-            total_rows = cursor.fetchone()[0]
+            cursor_count.execute(count_query)
+            total_rows = cursor_count.fetchone()[0]
+            cursor_count.close()
 
             logger.info(f"Total rows to export: {total_rows}")
+
+            # Use server-side cursor for large result sets (streaming)
+            cursor = conn.cursor(name=f'sf_upload_cursor_{request_id}_{os.getpid()}')
 
             # Build and execute SELECT query
             select_query = f"""
@@ -203,7 +215,9 @@ class FileGenerator:
             """
 
             logger.info(f"Executing query: {select_query[:200]}...")
+            logger.info(f"⏳ Query executing... (this may take several minutes for large datasets)")
             cursor.execute(select_query)
+            logger.info(f"✅ Query executed successfully, beginning data fetch...")
 
             # Write to file with progress tracking
             logger.info(f"📝 File writing initiated: {temp_file_path} ({total_rows} rows)")
@@ -214,7 +228,7 @@ class FileGenerator:
 
                 # Write data rows
                 row_count = 0
-                batch_size = 10000
+                batch_size = self.sf_config['upload'].get('batch_size', 10000)
                 last_logged_percentage = 0
                 log_thresholds = [25, 50, 75, 100]  # Only log at these percentages
 

@@ -536,6 +536,51 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
 
+  // Fetch upload status on component mount
+  useEffect(() => {
+    const fetchUploadStatus = async () => {
+      try {
+        const response = await fetch(`/api/snowflake/upload-status/${request.request_id}`);
+        const data = await response.json();
+
+        if (data.success && data.upload_status) {
+          if (data.upload_status.status === 'success') {
+            setUploadStatus('success');
+          } else if (data.upload_status.status === 'failed') {
+            setUploadStatus('error');
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching upload status:', err);
+      }
+    };
+
+    fetchUploadStatus();
+  }, [request.request_id]);
+
+  // Refetch status when modal closes
+  const handleModalClose = async () => {
+    setShowUploadModal(false);
+
+    // Refetch status after modal closes
+    try {
+      const response = await fetch(`/api/snowflake/upload-status/${request.request_id}`);
+      const data = await response.json();
+
+      if (data.success && data.upload_status) {
+        if (data.upload_status.status === 'success') {
+          setUploadStatus('success');
+        } else if (data.upload_status.status === 'failed') {
+          setUploadStatus('error');
+        } else {
+          setUploadStatus('idle');
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching upload status:', err);
+    }
+  };
+
   // Only show for Completed status
   if (request.request_status !== 'C') {
     return <span></span>;
@@ -577,7 +622,7 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: 
 
       <SnowflakeUploadModal
         isOpen={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
+        onClose={handleModalClose}
         requestId={request.request_id}
         clientName={request.client_name}
         week={request.week}
