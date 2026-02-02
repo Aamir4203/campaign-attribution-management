@@ -47,6 +47,64 @@ external_databases:
     password: "Cmp12cst01!!"
     connection_string: "mysql mt2_data -h cmprep-prod-ro-02-vip.bo3.e-dialog.com -u cmp_cust_user -pCmp12cst01!!"
 
+# Snowflake Upload Configuration
+snowflake:
+  upload:
+    enabled: true
+    temp_dir: "/tmp/snowflake_uploads"
+    file_delimiter: "|"
+    compression: "gzip"
+    max_file_size_mb: 500
+    max_concurrent_uploads: 2  # Maximum concurrent Snowflake uploads (prevent RAM exhaustion)
+    batch_size: 10000  # Number of rows to fetch per batch
+    purge_temp_files: true
+  table:
+    name_template: "APT_CUSTOM_{client_name}_{week}_{date}"
+    schema_suffix: "_FINAL"
+    sf_final_table: "APT_CUSTOM_{client_name}_{week}_{date}_FINAL"  # Complete Snowflake table name pattern
+    overwrite_on_reupload: true
+  columns:
+    standard_header:
+      - name: "Md5hash"
+        type: "VARCHAR"
+      - name: "Segment"
+        type: "VARCHAR"
+      - name: "SubSeg"
+        type: "VARCHAR"
+      - name: "Decile"
+        type: "VARCHAR"
+      - name: "DeliveredFlag"
+        type: "VARCHAR"
+      - name: "DeliveredDate"
+        type: "DATE"
+      - name: "Subject"
+        type: "VARCHAR"
+      - name: "Creative"
+        type: "VARCHAR"
+      - name: "OpenDate"
+        type: "DATE"
+      - name: "ClickDate"
+        type: "DATE"
+      - name: "UnsubDate"
+        type: "DATE"
+    excluded_columns:
+      - "priority"
+      - "status"
+      - "unsub"
+      - "freq"
+      - "id"
+      - "touch"
+      - "diff"
+    date_columns:
+      - "del_date"
+      - "open_date"
+      - "click_date"
+      - "unsub_date"
+      - "DeliveredDate"
+      - "OpenDate"
+      - "ClickDate"
+      - "UnsubDate"
+
 # File System Paths (Unix environment paths for backend processing)
 file_paths:
   main_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB"

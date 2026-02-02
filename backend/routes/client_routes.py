@@ -94,22 +94,24 @@ def check_client():
 
 @client_bp.route('/add_client', methods=['POST'])
 def add_client():
-    """Add new client to database"""
+    """Add new client to database - replicates addClient.sh script logic"""
     try:
         data = request.get_json()
         if not data or 'client_name' not in data:
             return jsonify({'error': 'client_name is required'}), 400
 
-        client_name = data['client_name'].strip()
+        client_name = data['client_name'].strip().upper()  # Script converts to uppercase
         if not client_name:
             return jsonify({'error': 'client_name cannot be empty'}), 400
+
+        logger.info(f"📝 Adding new client: {client_name}")
 
         conn = get_db_connection()
         if not conn:
             return jsonify({
                 'success': False,
                 'message': 'Database connection unavailable'
-            })
+            }), 500
 
         cursor = conn.cursor()
         clients_table = config.get_table_name('clients')
@@ -124,33 +126,113 @@ def add_client():
         if existing:
             cursor.close()
             release_db_connection(conn)
+            logger.warning(f"⚠️ Client {client_name} already exists")
             return jsonify({
                 'success': False,
                 'message': f'Client "{client_name}" already exists'
             })
 
-        # Add new client
-        cursor.execute(
-            f"INSERT INTO {clients_table} (client_name) VALUES (%s) RETURNING client_id",
-            (client_name,)
-        )
-        client_id = cursor.fetchone()[0]
+        # Generate table names (matching addClient.sh script pattern)
+        total_delivered_table = f"apt_custom_{client_name.lower()}_total_delivered_dnd"
+        posted_unsub_table = f"apt_custom_{client_name.lower()}_posted_unsub_dnd"
+        prev_postback_table = f"apt_adhoc_{client_name.lower()}_prev_postback_dnd"
 
-        conn.commit()
-        cursor.close()
-        release_db_connection(conn)
+        logger.info(f"📊 Creating tables for client {client_name}")
+        logger.info(f"  - Total Delivered: {total_delivered_table}")
+        logger.info(f"  - Posted Unsub: {posted_unsub_table}")
+        logger.info(f"  - Prev Postback: {prev_postback_table}")
 
-        return jsonify({
-            'success': True,
-            'client_id': client_id,
-            'message': f'Client "{client_name}" added successfully'
-        })
+        try:
+            # Create total delivered table
+            cursor.execute(f"""
+                CREATE TABLE {total_delivered_table} (
+                    email VARCHAR UNIQUE,
+                    segment VARCHAR,
+                    del_date VARCHAR,
+                    week VARCHAR DEFAULT '#',
+                    touch INT DEFAULT 0
+                )
+            """)
+            logger.info(f"✅ Created table: {total_delivered_table}")
+
+            # Create posted unsub/hards table
+            cursor.execute(f"""
+                CREATE TABLE {posted_unsub_table} (
+                    email VARCHAR UNIQUE,
+                    segment VARCHAR,
+                    del_date VARCHAR,
+                    unsub_date VARCHAR,
+                    flag VARCHAR
+                )
+            """)
+            logger.info(f"✅ Created table: {posted_unsub_table}")
+
+            # Create previous postback table
+            cursor.execute(f"""
+                CREATE TABLE {prev_postback_table} (
+                    email VARCHAR UNIQUE,
+                    del_date VARCHAR,
+                    open_date VARCHAR,
+                    click_date VARCHAR,
+                    unsub_date VARCHAR,
+                    segment VARCHAR,
+                    flag VARCHAR
+                )
+            """)
+            logger.info(f"✅ Created table: {prev_postback_table}")
+
+            # Insert client record with table references
+            cursor.execute(f"""
+                INSERT INTO {clients_table} (
+                    client_name,
+                    total_delivered_table,
+                    posted_unsub_hards_table,
+                    prev_week_pb_table,
+                    bkp_prev_pb_table
+                ) VALUES (%s, %s, %s, %s, %s)
+                RETURNING client_id
+            """, (
+                client_name,
+                total_delivered_table,
+                posted_unsub_table,
+                prev_postback_table,
+                prev_postback_table  # bkp uses same as prev
+            ))
+
+            client_id = cursor.fetchone()[0]
+            conn.commit()
+
+            logger.info(f"✅ Client '{client_name}' added successfully with ID: {client_id}")
+
+            cursor.close()
+            release_db_connection(conn)
+
+            return jsonify({
+                'success': True,
+                'client_id': client_id,
+                'message': f'Client "{client_name}" added successfully',
+                'tables_created': {
+                    'total_delivered': total_delivered_table,
+                    'posted_unsub': posted_unsub_table,
+                    'prev_postback': prev_postback_table
+                }
+            })
+
+        except Exception as table_error:
+            conn.rollback()
+            cursor.close()
+            release_db_connection(conn)
+            logger.error(f"❌ Failed to create tables: {table_error}")
+            return jsonify({
+                'success': False,
+                'message': f'Failed to create tables: {str(table_error)}'
+            }), 500
 
     except Exception as e:
-        logger.error(f"Error adding client: {e}")
+        logger.error(f"❌ Error adding client: {e}")
         return jsonify({
             'success': False,
-            'message': 'Failed to add client'
+            'message': f'Failed to add client: {str(e)}'
         }), 500
 
 

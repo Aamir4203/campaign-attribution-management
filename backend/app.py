@@ -10,6 +10,11 @@ import logging
 from datetime import datetime
 import signal
 import sys
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Import configuration
 from config.config import get_config
@@ -27,6 +32,15 @@ logging.basicConfig(
     format=logging_config.get('format', '%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 )
 logger = logging.getLogger(__name__)
+
+# Reduce verbosity of third-party libraries
+logging.getLogger('snowflake.connector').setLevel(logging.WARNING)
+logging.getLogger('botocore').setLevel(logging.WARNING)
+logging.getLogger('boto3').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('werkzeug').setLevel(logging.INFO)  # Flask HTTP logs
+
+logger.info("✅ Logging configured - third-party libraries set to WARNING level")
 
 # Validate configuration on startup
 if not config.validate_config():
@@ -95,6 +109,13 @@ def register_blueprints():
             logger.info("✅ Registered dashboard routes")
         except ImportError as e:
             logger.warning(f"⚠️ Dashboard routes not available: {e}")
+
+        try:
+            from routes.snowflake_routes import snowflake_bp
+            app.register_blueprint(snowflake_bp)
+            logger.info("✅ Registered Snowflake upload routes")
+        except ImportError as e:
+            logger.warning(f"⚠️ Snowflake routes not available: {e}")
 
         logger.info("✅ All available blueprints registered successfully")
         return True

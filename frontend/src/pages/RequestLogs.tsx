@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { requestService } from '../services/requestService';
-import { MdCancel, MdVisibility, MdBarChart, MdAttachFile, MdEdit } from 'react-icons/md';
+import { MdCancel, MdVisibility, MdBarChart, MdCloudUpload, MdEdit } from 'react-icons/md';
 import RequestStatsModal from '../components/RequestStatsModal';
 import MetricsModal from '../components/MetricsModal';
+import SnowflakeUploadModal from '../components/SnowflakeUploadModal';
 
 // Custom Alert Modal Component
 const AlertModal: React.FC<{
@@ -192,6 +193,9 @@ interface Request {
   request_status: string; // W, R, E, C, RE
   request_desc: string;
   execution_time: string;
+  sf_upload_status?: string | null; // NULL, 'success', 'failed'
+  sf_table_name?: string | null;
+  sf_upload_time?: string | null;
 }
 
 // Status badge component with clean styling
@@ -284,8 +288,8 @@ const KillButton: React.FC<{ request: Request; onAction: () => void; onAlert: (t
 
   // Button styling - different appearance if last attempt failed
   const buttonClass = lastCancelFailed
-    ? "text-orange-600 hover:text-orange-800 transition-colors disabled:opacity-50 p-1 border border-orange-300 rounded"
-    : "text-red-600 hover:text-red-800 transition-colors disabled:opacity-50 p-1";
+    ? "text-orange-600 hover:text-orange-800 transition-colors disabled:opacity-50 p-1.5 border border-orange-300 rounded hover:bg-orange-50"
+    : "text-red-600 hover:text-red-800 transition-colors disabled:opacity-50 p-1.5 rounded hover:bg-red-50";
 
   const buttonTitle = lastCancelFailed
     ? "Retry Cancel Request (Previous attempt failed)"
@@ -299,7 +303,7 @@ const KillButton: React.FC<{ request: Request; onAction: () => void; onAlert: (t
         className={buttonClass}
         title={buttonTitle}
       >
-        <MdCancel className="w-4 h-4" />
+        <MdCancel className="w-5 h-5" />
       </button>
 
       {/* Confirmation Dialog */}
@@ -424,13 +428,13 @@ const EditButton: React.FC<{ request: Request }> = ({ request }) => {
     <button
       onClick={handleEdit}
       disabled={isLoading}
-      className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1"
+      className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1.5 rounded hover:bg-green-50"
       title={isLoading ? "Loading request details..." : "Edit Request"}
     >
       {isLoading ? (
-        <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
       ) : (
-        <MdEdit className="w-4 h-4" />
+        <MdEdit className="w-5 h-5" />
       )}
     </button>
   );
@@ -453,10 +457,10 @@ const ViewButton: React.FC<{ request: Request; onAlert: (title: string, message:
     <>
       <button
         onClick={handleView}
-        className="text-gray-600 hover:text-gray-800 transition-colors p-1"
+        className="text-gray-600 hover:text-gray-800 transition-colors p-1.5 rounded hover:bg-gray-100"
         title="View Statistics"
       >
-        <MdVisibility className="w-4 h-4" />
+        <MdVisibility className="w-5 h-5" />
       </button>
 
       <RequestStatsModal
@@ -510,13 +514,13 @@ const MetricsButton: React.FC<{ request: Request; onAlert: (title: string, messa
       <button
         onClick={handleMetrics}
         disabled={loading}
-        className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1 relative"
+        className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50 p-1.5 rounded hover:bg-green-50 relative"
         title="Download Metrics"
       >
         {loading ? (
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-600 border-t-transparent"></div>
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-green-600 border-t-transparent"></div>
         ) : (
-          <MdBarChart className="w-4 h-4" />
+          <MdBarChart className="w-5 h-5" />
         )}
       </button>
 
@@ -532,37 +536,57 @@ const MetricsButton: React.FC<{ request: Request; onAlert: (title: string, messa
 };
 
 const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAction, onAlert }) => {
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
-  // Only show for Completed status (matching LogStreamr logic)
+  // Only show for Completed status
   if (request.request_status !== 'C') {
     return <span></span>;
   }
 
-  const handleUpload = () => {
-    // Disable functionality - just set processing state and show alert
-    setIsProcessing(true);
-    onAlert('Info', 'Upload functionality is temporarily disabled.', 'info');
+  // Get upload status from request object (already loaded from DB)
+  const uploadStatus = request.sf_upload_status === 'success' ? 'success'
+    : request.sf_upload_status === 'failed' ? 'error'
+    : 'idle';
 
-    // Reset the processing state after a short delay to allow user to see the feedback
-    setTimeout(() => {
-      setIsProcessing(false);
-    }, 1500);
+  const handleUploadClick = () => {
+    setShowUploadModal(true);
+  };
+
+  const handleModalClose = () => {
+    setShowUploadModal(false);
+    // Trigger parent refresh to update status
+    onAction();
+  };
+
+  const getButtonColor = () => {
+    switch (uploadStatus) {
+      case 'success':
+        return 'text-green-600 hover:text-green-800 hover:bg-green-50';
+      case 'error':
+        return 'text-red-600 hover:text-red-800 hover:bg-red-50';
+      default:
+        return 'text-blue-600 hover:text-blue-800 hover:bg-blue-50';
+    }
   };
 
   return (
-    <button
-      onClick={handleUpload}
-      disabled={isProcessing}
-      className="text-purple-600 hover:text-purple-800 transition-colors disabled:opacity-50 p-1"
-      title={isProcessing ? "Upload in progress..." : "Upload File"}
-    >
-      {isProcessing ? (
-        <div className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
-      ) : (
-        <MdAttachFile className="w-4 h-4" />
-      )}
-    </button>
+    <>
+      <button
+        onClick={handleUploadClick}
+        className={`${getButtonColor()} transition-colors p-1.5 rounded`}
+        title="Upload to Snowflake"
+      >
+        <MdCloudUpload className="w-5 h-5" />
+      </button>
+
+      <SnowflakeUploadModal
+        isOpen={showUploadModal}
+        onClose={handleModalClose}
+        requestId={request.request_id}
+        clientName={request.client_name}
+        week={request.week}
+      />
+    </>
   );
 };
 

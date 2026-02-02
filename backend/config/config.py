@@ -204,6 +204,10 @@ class ConfigManager:
         """Get logging configuration"""
         return self._config.get('logging', {})
 
+    def get_snowflake_config(self) -> Dict[str, Any]:
+        """Get Snowflake configuration"""
+        return self._config.get('snowflake', {})
+
     def get_full_config(self) -> Dict[str, Any]:
         """Get the complete configuration dictionary"""
         return self._config.copy()

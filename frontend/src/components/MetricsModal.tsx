@@ -235,8 +235,8 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded shadow-xl w-full max-w-lg mx-4 max-h-[60vh] flex flex-col relative">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col relative">
         {/* Download Loading Overlay */}
         {downloadLoading && (
           <div className="absolute inset-0 bg-white bg-opacity-95 flex items-center justify-center z-10 rounded">
@@ -248,7 +248,7 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
           </div>
         )}
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-gray-200">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-2">
             <span className="text-blue-600">📈</span>
             <h2 className="text-base font-medium text-gray-900">
@@ -281,28 +281,28 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 transition-colors"
             >
-              <MdClose className="h-4 w-4" />
+              <MdClose className="h-5 w-5" />
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden p-3">
+        <div className="flex-1 overflow-hidden p-4">
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded p-2 mb-3">
+            <div className="bg-red-50 border border-red-200 rounded p-3 mb-4">
               <div className="flex">
                 <div className="ml-2">
-                  <h3 className="text-xs font-medium text-red-800">Error</h3>
-                  <p className="mt-1 text-xs text-red-700">{error}</p>
+                  <h3 className="text-sm font-medium text-red-800">Error</h3>
+                  <p className="mt-1 text-sm text-red-700">{error}</p>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="space-y-3 overflow-y-auto max-h-[35vh]">
+          <div className="space-y-4 overflow-y-auto max-h-[60vh]">
             {/* Metric Type Selection */}
             <div>
-              <h3 className="text-sm font-medium text-gray-900 mb-2 text-left">Select Metric Type</h3>
+              <h3 className="text-base font-medium text-gray-900 mb-3 text-left">Select Metric Type</h3>
               <div className="flex flex-col space-y-2">
                 <label className="flex items-center">
                   <input
@@ -311,7 +311,7 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
                     value="standard"
                     checked={metricType === 'standard'}
                     onChange={(e) => setMetricType(e.target.value as 'standard' | 'custom')}
-                    className="mr-2 h-3 w-3 text-blue-600 focus:ring-blue-500 border-gray-300"
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                   />
                   <span className="text-gray-700 text-sm font-medium">Standard Metrics</span>
                 </label>
@@ -322,7 +322,7 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
                     value="custom"
                     checked={metricType === 'custom'}
                     onChange={(e) => setMetricType(e.target.value as 'standard' | 'custom')}
-                    className="mr-2 h-3 w-3 text-blue-600 focus:ring-blue-500 border-gray-300"
+                    className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                   />
                   <span className="text-gray-700 text-sm font-medium">Custom Metrics</span>
                 </label>
@@ -355,8 +355,8 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
                 </div>
 
                 {loading && (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
                     <span className="ml-3 text-gray-600">Loading table columns...</span>
                   </div>
                 )}
@@ -407,7 +407,7 @@ const MetricsModal: React.FC<MetricsModalProps> = ({
 
                       {/* Show checkboxes only when expanded OR when query has no columns */}
                       {(isExpanded || !hasColumns) && (
-                        <div className="grid grid-cols-3 gap-4 mb-3">
+                        <div className="grid grid-cols-4 gap-3 mb-3">
                           {/* Regular available columns */}
                           {availableColumns.map((column) => {
                             const isSelected = query.columns.some(col => col.name === column);

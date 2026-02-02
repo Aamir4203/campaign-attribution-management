@@ -141,10 +141,10 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded shadow-xl w-full max-w-lg mx-4 max-h-[70vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b border-gray-200">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-2">
             <span className="text-blue-600">📊</span>
             <h2 className="text-base font-medium text-gray-900">
@@ -156,16 +156,16 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
               <button
                 onClick={handleDownload}
                 disabled={downloadLoading}
-                className={`px-2 py-1 text-xs font-medium text-white border border-transparent rounded flex items-center space-x-1 ${
+                className={`px-3 py-2 text-sm font-medium text-white border border-transparent rounded flex items-center space-x-2 ${
                   downloadLoading
                     ? 'bg-green-400 cursor-not-allowed'
                     : 'bg-green-600 hover:bg-green-700'
                 }`}
               >
                 {downloadLoading ? (
-                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                 ) : (
-                  <MdDownload className="h-3 w-3" />
+                  <MdDownload className="h-4 w-4" />
                 )}
                 <span>{downloadLoading ? 'Downloading...' : 'Download Excel'}</span>
               </button>
@@ -174,40 +174,40 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 transition-colors"
             >
-              <MdClose className="h-4 w-4" />
+              <MdClose className="h-5 w-5" />
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden p-3">
+        <div className="flex-1 overflow-hidden p-4">
           {loading && (
-            <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-              <span className="ml-2 text-sm text-gray-600">Loading...</span>
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+              <span className="ml-3 text-gray-600">Loading...</span>
             </div>
           )}
 
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded p-2">
+            <div className="bg-red-50 border border-red-200 rounded p-3">
               <div className="flex">
                 <div className="ml-2">
-                  <h3 className="text-xs font-medium text-red-800">Error</h3>
-                  <p className="mt-1 text-xs text-red-700">{error}</p>
+                  <h3 className="text-sm font-medium text-red-800">Error</h3>
+                  <p className="mt-1 text-sm text-red-700">{error}</p>
                 </div>
               </div>
             </div>
           )}
 
           {stats && (
-            <div className="space-y-4 overflow-y-auto max-h-[50vh]">
+            <div className="space-y-4 overflow-y-auto max-h-[60vh]">
               {/* Request Details Section */}
               <div>
-                <h3 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                <h3 className="text-base font-medium text-gray-900 mb-3 flex items-center">
                   <span className="h-1 w-1 bg-blue-600 rounded-full mr-2"></span>
                   Request Details
                 </h3>
-                <div className="bg-gray-50 rounded p-2">
+                <div className="bg-gray-50 rounded p-3">
                   <div className="overflow-x-auto">
                     <table style={{
                       width: '100%',
@@ -226,14 +226,14 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
                             width: '50% !important',
                             minWidth: '50%',
                             maxWidth: '50%'
-                          }} className="px-3 py-2 text-left text-xs font-bold text-white border-b border-white border-r border-white">
+                          }} className="px-3 py-2 text-left text-sm font-bold text-white border-b border-white border-r border-white">
                             Name
                           </th>
                           <th style={{
                             width: '50% !important',
                             minWidth: '50%',
                             maxWidth: '50%'
-                          }} className="px-3 py-2 text-left text-xs font-bold text-white border-b border-white">
+                          }} className="px-3 py-2 text-left text-sm font-bold text-white border-b border-white">
                             Value
                           </th>
                         </tr>
@@ -245,14 +245,14 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
                               width: '50% !important',
                               minWidth: '50%',
                               maxWidth: '50%'
-                            }} className="px-3 py-2 text-xs font-medium text-gray-700 border-r border-gray-200">
+                            }} className="px-3 py-2 text-sm font-medium text-gray-700 border-r border-gray-200">
                               {formatHeader(item.header)}
                             </td>
                             <td style={{
                               width: '50% !important',
                               minWidth: '50%',
                               maxWidth: '50%'
-                            }} className="px-3 py-2 text-xs text-gray-900">
+                            }} className="px-3 py-2 text-sm text-gray-900">
                               {item.value || 'N/A'}
                             </td>
                           </tr>
@@ -265,11 +265,11 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
 
               {/* Logs Details Section */}
               <div>
-                <h3 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                <h3 className="text-base font-medium text-gray-900 mb-3 flex items-center">
                   <span className="h-1 w-1 bg-blue-600 rounded-full mr-2"></span>
                   Logs Details
                 </h3>
-                <div className="bg-gray-50 rounded p-2">
+                <div className="bg-gray-50 rounded p-3">
                   <div className="overflow-x-auto">
                     <table style={{
                       width: '100%',
@@ -288,14 +288,14 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
                             width: '50% !important',
                             minWidth: '50%',
                             maxWidth: '50%'
-                          }} className="px-3 py-2 text-left text-xs font-bold text-white border-b border-white border-r border-white">
+                          }} className="px-3 py-2 text-left text-sm font-bold text-white border-b border-white border-r border-white">
                             Name
                           </th>
                           <th style={{
                             width: '50% !important',
                             minWidth: '50%',
                             maxWidth: '50%'
-                          }} className="px-3 py-2 text-left text-xs font-bold text-white border-b border-white">
+                          }} className="px-3 py-2 text-left text-sm font-bold text-white border-b border-white">
                             Value
                           </th>
                         </tr>
@@ -307,14 +307,14 @@ const RequestStatsModal: React.FC<RequestStatsModalProps> = ({
                               width: '50% !important',
                               minWidth: '50%',
                               maxWidth: '50%'
-                            }} className="px-3 py-2 text-xs font-medium text-gray-700 border-r border-gray-200">
+                            }} className="px-3 py-2 text-sm font-medium text-gray-700 border-r border-gray-200">
                               {formatHeader(item.header)}
                             </td>
                             <td style={{
                               width: '50% !important',
                               minWidth: '50%',
                               maxWidth: '50%'
-                            }} className="px-3 py-2 text-xs text-gray-900">
+                            }} className="px-3 py-2 text-sm text-gray-900">
                               {item.value || 'N/A'}
                             </td>
                           </tr>
