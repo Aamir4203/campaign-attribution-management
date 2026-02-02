@@ -193,6 +193,9 @@ interface Request {
   request_status: string; // W, R, E, C, RE
   request_desc: string;
   execution_time: string;
+  sf_upload_status?: string | null; // NULL, 'success', 'failed'
+  sf_table_name?: string | null;
+  sf_upload_time?: string | null;
 }
 
 // Status badge component with clean styling
@@ -534,60 +537,25 @@ const MetricsButton: React.FC<{ request: Request; onAlert: (title: string, messa
 
 const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: (title: string, message: string, type?: 'info' | 'success' | 'error' | 'warning') => void }> = ({ request, onAction, onAlert }) => {
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
-
-  // Fetch upload status on component mount
-  useEffect(() => {
-    const fetchUploadStatus = async () => {
-      try {
-        const response = await fetch(`/api/snowflake/upload-status/${request.request_id}`);
-        const data = await response.json();
-
-        if (data.success && data.upload_status) {
-          if (data.upload_status.status === 'success') {
-            setUploadStatus('success');
-          } else if (data.upload_status.status === 'failed') {
-            setUploadStatus('error');
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching upload status:', err);
-      }
-    };
-
-    fetchUploadStatus();
-  }, [request.request_id]);
-
-  // Refetch status when modal closes
-  const handleModalClose = async () => {
-    setShowUploadModal(false);
-
-    // Refetch status after modal closes
-    try {
-      const response = await fetch(`/api/snowflake/upload-status/${request.request_id}`);
-      const data = await response.json();
-
-      if (data.success && data.upload_status) {
-        if (data.upload_status.status === 'success') {
-          setUploadStatus('success');
-        } else if (data.upload_status.status === 'failed') {
-          setUploadStatus('error');
-        } else {
-          setUploadStatus('idle');
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching upload status:', err);
-    }
-  };
 
   // Only show for Completed status
   if (request.request_status !== 'C') {
     return <span></span>;
   }
 
+  // Get upload status from request object (already loaded from DB)
+  const uploadStatus = request.sf_upload_status === 'success' ? 'success'
+    : request.sf_upload_status === 'failed' ? 'error'
+    : 'idle';
+
   const handleUploadClick = () => {
     setShowUploadModal(true);
+  };
+
+  const handleModalClose = () => {
+    setShowUploadModal(false);
+    // Trigger parent refresh to update status
+    onAction();
   };
 
   const getButtonColor = () => {
@@ -596,18 +564,9 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: 
         return 'text-green-600 hover:text-green-800 hover:bg-green-50';
       case 'error':
         return 'text-red-600 hover:text-red-800 hover:bg-red-50';
-      case 'uploading':
-        return 'text-blue-600 hover:bg-blue-50';
       default:
         return 'text-blue-600 hover:text-blue-800 hover:bg-blue-50';
     }
-  };
-
-  const getButtonIcon = () => {
-    if (uploadStatus === 'uploading') {
-      return <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>;
-    }
-    return <MdCloudUpload className="w-5 h-5" />;
   };
 
   return (
@@ -617,7 +576,7 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: 
         className={`${getButtonColor()} transition-colors p-1.5 rounded`}
         title="Upload to Snowflake"
       >
-        {getButtonIcon()}
+        <MdCloudUpload className="w-5 h-5" />
       </button>
 
       <SnowflakeUploadModal

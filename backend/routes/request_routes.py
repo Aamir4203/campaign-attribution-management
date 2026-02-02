@@ -57,7 +57,10 @@ def get_requests():
             COALESCE(c.rltp_file_count, 0) as trt_count,
             a.request_status,
             a.request_desc,
-            COALESCE(a.execution_time, '-') as execution_time
+            COALESCE(a.execution_time, '-') as execution_time,
+            a.sf_upload_status,
+            a.sf_table_name,
+            a.sf_upload_time
         FROM {requests_table} a
         JOIN {clients_table} b ON a.client_id = b.client_id
         LEFT JOIN {qa_table} c ON a.request_id = c.request_id
@@ -106,7 +109,10 @@ def get_requests():
                 'trt_count': row[4] or 0,
                 'request_status': row[5] or 'W',
                 'request_desc': row[6] or 'No description',
-                'execution_time': row[7] or '-'
+                'execution_time': row[7] or '-',
+                'sf_upload_status': row[8],  # NULL, 'success', 'failed'
+                'sf_table_name': row[9],
+                'sf_upload_time': row[10].isoformat() if row[10] else None
             })
 
         total_pages = (total_count + limit - 1) // limit
