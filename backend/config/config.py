@@ -205,8 +205,20 @@ class ConfigManager:
         return self._config.get('logging', {})
 
     def get_snowflake_config(self) -> Dict[str, Any]:
-        """Get Snowflake configuration"""
-        return self._config.get('snowflake', {})
+        """Get Snowflake configuration (legacy - returns production config)"""
+        sf_config = self._config.get('snowflake', {})
+        # For backward compatibility, return production config if old structure doesn't exist
+        if 'production' in sf_config:
+            return sf_config.get('production', {})
+        return sf_config
+
+    def get_snowflake_production_config(self) -> Dict[str, Any]:
+        """Get Production Snowflake configuration"""
+        return self._config.get('snowflake', {}).get('production', {})
+
+    def get_snowflake_audit_config(self) -> Dict[str, Any]:
+        """Get Audit (LPT) Snowflake configuration"""
+        return self._config.get('snowflake', {}).get('audit', {})
 
     def get_full_config(self) -> Dict[str, Any]:
         """Get the complete configuration dictionary"""

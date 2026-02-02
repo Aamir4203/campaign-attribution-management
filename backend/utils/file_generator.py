@@ -22,7 +22,7 @@ class FileGenerator:
         """Initialize file generator with configuration"""
         self.config = get_config()
         self.sf_config = self.config.get_snowflake_config()
-        self.delimiter = self.sf_config['upload']['file_delimiter']
+        self.delimiter = self.sf_config.get('file_delimiter', '|')
 
     def get_standard_header_columns(self) -> List[Dict[str, str]]:
         """
@@ -175,7 +175,7 @@ class FileGenerator:
             header_names = [col['name'] for col in columns]
 
             # Create temporary file
-            temp_dir = self.sf_config['upload'].get('temp_dir', tempfile.gettempdir())
+            temp_dir = self.sf_config.get('temp_dir', tempfile.gettempdir())
             os.makedirs(temp_dir, exist_ok=True)
 
             # Check disk space (require at least 5GB free)
@@ -228,7 +228,7 @@ class FileGenerator:
 
                 # Write data rows
                 row_count = 0
-                batch_size = self.sf_config['upload'].get('batch_size', 10000)
+                batch_size = self.sf_config.get('batch_size', 10000)
                 last_logged_percentage = 0
                 log_thresholds = [25, 50, 75, 100]  # Only log at these percentages
 

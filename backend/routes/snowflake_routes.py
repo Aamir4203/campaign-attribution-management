@@ -10,6 +10,7 @@ from datetime import datetime
 from db import get_db_connection, release_db_connection
 from config.config import get_config
 from services.snowflake_service import SnowflakeService
+from services.snowflake_audit_service import SnowflakeAuditService
 from utils.file_generator import FileGenerator
 from utils.progress_tracker import get_progress_tracker
 
@@ -24,12 +25,12 @@ progress_tracker = get_progress_tracker()
 
 # Upload concurrency limiter (semaphore to prevent RAM exhaustion)
 sf_config = config.get_snowflake_config()
-max_concurrent = sf_config['upload'].get('max_concurrent_uploads', 2)
+max_concurrent = sf_config.get('max_concurrent_uploads', 2)
 upload_semaphore = threading.Semaphore(max_concurrent)
 active_uploads_count = 0
 active_uploads_lock = threading.Lock()
 
-logger.info(f"🔒 Snowflake upload concurrency limit: {max_concurrent} simultaneous uploads")
+logger.info(f"Snowflake upload concurrency limit: {max_concurrent} simultaneous uploads")
 
 
 # Note: This endpoint is deprecated - frontend now uses /api/tables/<table_name>/columns
@@ -37,7 +38,7 @@ logger.info(f"🔒 Snowflake upload concurrency limit: {max_concurrent} simultan
 @snowflake_bp.route('/api/snowflake/columns/<int:request_id>', methods=['GET'])
 def get_postback_columns(request_id):
     """Get available columns from postback table (DEPRECATED - use /api/tables/<table_name>/columns)"""
-    logger.info(f"📊 Get columns endpoint called for request ID: {request_id}")
+    logger.info(f"Get columns endpoint called for request ID: {request_id}")
 
     try:
         # Get client name and week from request
@@ -48,7 +49,7 @@ def get_postback_columns(request_id):
 
         if not client_name or not week:
             error_msg = 'client_name and week parameters are required'
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"{error_msg}")
             return jsonify({
                 'success': False,
                 'error': error_msg
@@ -66,7 +67,7 @@ def get_postback_columns(request_id):
 
         if not all_columns:
             error_msg = f'Table {table_name} not found or has no columns'
-            logger.error(f"❌ {error_msg}")
+            logger.error(f"{error_msg}")
             return jsonify({
                 'success': False,
                 'error': error_msg
@@ -106,7 +107,7 @@ def get_postback_columns(request_id):
             if col.lower() not in all_excluded
         ]
 
-        logger.info(f"✅ Found {len(available_custom_columns)} custom columns: {available_custom_columns}")
+        logger.info(f"Found {len(available_custom_columns)} custom columns: {available_custom_columns}")
 
         return jsonify({
             'success': True,
@@ -118,7 +119,7 @@ def get_postback_columns(request_id):
         })
 
     except Exception as e:
-        logger.error(f"❌ Error getting columns: {e}")
+        logger.error(f"Error getting columns: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
@@ -130,7 +131,7 @@ def get_postback_columns(request_id):
 @snowflake_bp.route('/api/snowflake/upload/<int:request_id>', methods=['POST'])
 def start_snowflake_upload(request_id):
     """Start Snowflake upload process"""
-    logger.info(f"🚀 Start upload endpoint called for request ID: {request_id}")
+    logger.info(f"Start upload endpoint called for request ID: {request_id}")
 
     try:
         data = request.get_json()
@@ -150,7 +151,7 @@ def start_snowflake_upload(request_id):
         global active_uploads_count
         with active_uploads_lock:
             if active_uploads_count >= max_concurrent:
-                logger.warning(f"⚠️ Upload limit reached: {active_uploads_count}/{max_concurrent} active uploads")
+                logger.warning(f"Upload limit reached: {active_uploads_count}/{max_concurrent} active uploads")
                 return jsonify({
                     'success': False,
                     'error': f'Maximum concurrent uploads ({max_concurrent}) reached. Please wait for an upload to complete.'
@@ -177,7 +178,7 @@ def start_snowflake_upload(request_id):
         with active_uploads_lock:
             active_uploads_count += 1
 
-        logger.info(f"✅ Upload task {task_id} started ({active_uploads_count}/{max_concurrent} active)")
+        logger.info(f"Upload task {task_id} started ({active_uploads_count}/{max_concurrent} active)")
 
         return jsonify({
             'success': True,
@@ -186,7 +187,110 @@ def start_snowflake_upload(request_id):
         })
 
     except Exception as e:
-        logger.error(f"❌ Error starting upload: {e}")
+        logger.error(f"Error starting upload: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@snowflake_bp.route('/api/snowflake/upload-dual/<int:request_id>', methods=['POST'])
+def start_dual_snowflake_upload(request_id):
+    """Start dual Snowflake upload process (Production + Audit)"""
+    logger.info(f"Start DUAL upload endpoint called for request ID: {request_id}")
+
+    try:
+        data = request.get_json()
+
+        client_name = data.get('client_name')
+        week = data.get('week')
+        header_type = data.get('header_type', 'standard')
+        custom_columns = data.get('custom_columns', [])
+        enable_production = data.get('enable_production', True)
+        enable_audit = data.get('enable_audit', True)
+
+        if not client_name or not week:
+            return jsonify({
+                'success': False,
+                'error': 'client_name and week are required'
+            }), 400
+
+        # Check concurrent upload limit (count both production and audit as separate uploads)
+        global active_uploads_count
+        with active_uploads_lock:
+            required_slots = (1 if enable_production else 0) + (1 if enable_audit else 0)
+            if active_uploads_count + required_slots > max_concurrent:
+                logger.warning(f"Upload limit reached: {active_uploads_count}/{max_concurrent} active uploads")
+                return jsonify({
+                    'success': False,
+                    'error': f'Maximum concurrent uploads ({max_concurrent}) reached. Please wait for uploads to complete.'
+                }), 429
+
+        # Generate task IDs
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        prod_task_id = f"sf_prod_{request_id}_{timestamp}" if enable_production else None
+        audit_task_id = f"sf_audit_{request_id}_{timestamp}" if enable_audit else None
+
+        # Create progress tasks
+        if enable_production:
+            progress_tracker.create_task(
+                task_id=prod_task_id,
+                total_steps=100,
+                description=f"Production Delivery - Request {request_id}"
+            )
+
+        if enable_audit:
+            progress_tracker.create_task(
+                task_id=audit_task_id,
+                total_steps=100,
+                description=f"Audit Delivery - Request {request_id}"
+            )
+
+        # Start production upload thread (if enabled)
+        if enable_production:
+            prod_thread = threading.Thread(
+                target=_process_snowflake_upload,
+                args=(prod_task_id, request_id, client_name, week, header_type, custom_columns)
+            )
+            prod_thread.daemon = True
+            prod_thread.start()
+
+            with active_uploads_lock:
+                active_uploads_count += 1
+
+        # Start audit upload thread (if enabled)
+        if enable_audit:
+            audit_thread = threading.Thread(
+                target=_process_audit_upload,
+                args=(audit_task_id, request_id, client_name, week)
+            )
+            audit_thread.daemon = True
+            audit_thread.start()
+
+            with active_uploads_lock:
+                active_uploads_count += 1
+
+        upload_types = []
+        if enable_production:
+            upload_types.append("Production")
+        if enable_audit:
+            upload_types.append("Audit")
+
+        logger.info(f"Upload started: {' + '.join(upload_types)} ({active_uploads_count}/{max_concurrent} active)")
+        if enable_production:
+            logger.info(f"   Production Task ID: {prod_task_id}")
+        if enable_audit:
+            logger.info(f"   Audit Task ID: {audit_task_id}")
+
+        return jsonify({
+            'success': True,
+            'production_task_id': prod_task_id,
+            'audit_task_id': audit_task_id,
+            'message': f'{" + ".join(upload_types)} upload started successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting dual upload: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -211,7 +315,7 @@ def get_upload_progress(task_id):
         })
 
     except Exception as e:
-        logger.error(f"❌ Error getting progress: {e}")
+        logger.error(f"Error getting progress: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -234,7 +338,7 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
     file_path = None
 
     try:
-        logger.info(f"🔄 Processing Snowflake upload for task {task_id}")
+        logger.info(f"Processing Snowflake upload for task {task_id}")
 
         # Step 1: Generate file (0-50%)
         progress_tracker.update_progress(task_id, 5, "Generating file from database...")
@@ -267,7 +371,7 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
             raise Exception(f"File generation failed: {', '.join(file_result['errors'])}")
 
         file_path = file_result['file_path']
-        logger.info(f"✅ File generated: {file_path} ({file_result['row_count']} rows)")
+        logger.info(f"File generated: {file_path} ({file_result['row_count']} rows)")
 
         # Step 2: Connect to Snowflake (50-55%)
         progress_tracker.update_progress(task_id, 50, "Connecting to Snowflake...")
@@ -322,13 +426,13 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
 
         row_count = sf_service.get_row_count(table_name)
 
-        logger.info(f"🔍 Row count validation: {row_count:,} rows in Snowflake table")
+        logger.info(f"Row count validation: {row_count:,} rows in Snowflake table")
 
         # Validate row counts match
         if row_count == upload_result['rows_loaded']:
-            logger.info(f"✅ Validation successful: Row counts match")
+            logger.info(f"Validation successful: Row counts match")
         else:
-            logger.warning(f"⚠️ Row count mismatch: {upload_result['rows_loaded']:,} uploaded vs {row_count:,} in table")
+            logger.warning(f"Row count mismatch: {upload_result['rows_loaded']:,} uploaded vs {row_count:,} in table")
 
         # Complete task
         progress_tracker.complete_task(task_id, {
@@ -348,25 +452,28 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
                 cursor = conn.cursor()
                 requests_table = config.get_table_name('requests')
 
+                success_message = f"Production: {row_count:,} rows → {table_name}"
+
                 update_sql = f"""
                     UPDATE {requests_table}
                     SET sf_upload_status = 'success',
                         sf_table_name = %s,
-                        sf_upload_time = NOW()
+                        sf_upload_time = NOW(),
+                        request_desc = %s
                     WHERE request_id = %s
                 """
 
-                cursor.execute(update_sql, (table_name, request_id))
+                cursor.execute(update_sql, (table_name, success_message, request_id))
                 conn.commit()
                 cursor.close()
                 release_db_connection(conn)
 
-                logger.info(f"✅ Updated database with upload status for request {request_id}")
+                logger.info(f"Updated database with upload status for request {request_id}")
         except Exception as db_error:
-            logger.error(f"⚠️ Failed to update database with upload status: {db_error}")
+            logger.error(f"Failed to update database with upload status: {db_error}")
 
     except Exception as e:
-        logger.error(f"❌ Upload task {task_id} failed: {e}")
+        logger.error(f"Upload task {task_id} failed: {e}")
         progress_tracker.fail_task(task_id, str(e))
 
         # Update database with failed upload status (store error in request_desc)
@@ -391,16 +498,16 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
                 cursor.close()
                 release_db_connection(conn)
 
-                logger.info(f"✅ Updated database with failed status for request {request_id}")
+                logger.info(f"Updated database with failed status for request {request_id}")
         except Exception as db_error:
-            logger.error(f"⚠️ Failed to update database with failed status: {db_error}")
+            logger.error(f"Failed to update database with failed status: {db_error}")
 
     finally:
         # Decrement active upload counter
         global active_uploads_count
         with active_uploads_lock:
             active_uploads_count -= 1
-            logger.info(f"📊 Upload slot released ({active_uploads_count}/{max_concurrent} active)")
+            logger.info(f"Upload slot released ({active_uploads_count}/{max_concurrent} active)")
 
         # Clean up temporary file
         if file_path:
@@ -444,7 +551,7 @@ def test_snowflake_connection():
             }), 500
 
     except Exception as e:
-        logger.error(f"❌ Connection test failed: {e}")
+        logger.error(f"Connection test failed: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -454,7 +561,7 @@ def test_snowflake_connection():
 @snowflake_bp.route('/api/snowflake/upload-status/<int:request_id>', methods=['GET'])
 def get_upload_status(request_id):
     """Get Snowflake upload status for a request"""
-    logger.info(f"📊 Get upload status for request: {request_id}")
+    logger.info(f"Get upload status for request: {request_id}")
 
     try:
         conn = get_db_connection()
@@ -492,7 +599,7 @@ def get_upload_status(request_id):
             'error': result[3] if result[0] == 'failed' else None  # request_desc contains error for failed uploads
         }
 
-        logger.info(f"✅ Upload status for request {request_id}: {upload_status['status']}")
+        logger.info(f"Upload status for request {request_id}: {upload_status['status']}")
 
         return jsonify({
             'success': True,
@@ -500,7 +607,7 @@ def get_upload_status(request_id):
         })
 
     except Exception as e:
-        logger.error(f"❌ Error getting upload status: {e}")
+        logger.error(f"Error getting upload status: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -536,8 +643,133 @@ def cancel_upload(task_id):
         })
 
     except Exception as e:
-        logger.error(f"❌ Error cancelling task: {e}")
+        logger.error(f"Error cancelling task: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
+
+
+def _process_audit_upload(task_id: str, request_id: int, client_name: str, week: str):
+    """
+    Background process to handle Audit (LPT) Snowflake upload
+
+    Args:
+        task_id: Progress tracker task ID
+        request_id: Request ID
+        client_name: Client name
+        week: Week identifier
+    """
+    try:
+        logger.info(f"Processing Audit upload for task {task_id}")
+
+        # Step 1: Initialize audit service (0-10%)
+        progress_tracker.update_progress(task_id, 5, "Connecting to LPT Snowflake...")
+
+        audit_service = SnowflakeAuditService()
+        progress_tracker.update_progress(task_id, 10, "Connected to LPT Snowflake")
+
+        # Step 2: Generate source table name (10-15%)
+        progress_tracker.update_progress(task_id, 10, "Preparing data source...")
+
+        # Generate source table name (same format as production)
+        source_table = f"apt_custom_{request_id}_{client_name}_{week}_postback_table"
+        logger.info(f"📋 Source table: {source_table}")
+
+        progress_tracker.update_progress(task_id, 15, "Source table identified")
+
+        # Step 3: Analyze dates and process upload (15-95%)
+        progress_tracker.update_progress(task_id, 15, "Analyzing dates and uploading...")
+
+        # This will handle everything: date analysis, file writing, table creation, upload
+        upload_result = audit_service.upload_to_audit(request_id, client_name, source_table)
+
+        if not upload_result['success']:
+            raise Exception(f"Audit upload failed: {', '.join(upload_result['errors'])}")
+
+        progress_tracker.update_progress(
+            task_id,
+            95,
+            f"Audit upload completed: {upload_result['files_uploaded']} file(s), {upload_result['total_rows']:,} rows"
+        )
+
+        # Step 4: Complete task (95-100%)
+        progress_tracker.complete_task(task_id, {
+            'files_uploaded': upload_result['files_uploaded'],
+            'total_rows': upload_result['total_rows'],
+            'tables_created': upload_result.get('tables_created', []),
+            'tables': ', '.join(upload_result.get('tables_created', [])) if upload_result.get('tables_created') else 'Existing tables used'
+        })
+
+        logger.info(f"🎉 Audit upload completed successfully: {upload_result['files_uploaded']} file(s), {upload_result['total_rows']:,} rows")
+
+        # Update database with successful audit upload status
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                requests_table = config.get_table_name('requests')
+
+                # Add custom column for audit upload tracking (if not exists)
+                update_sql = f"""
+                    UPDATE {requests_table}
+                    SET request_desc = COALESCE(request_desc, '') || ' | Audit: ' || %s || ' files, ' || %s || ' rows'
+                    WHERE request_id = %s
+                """
+
+                cursor.execute(update_sql, (
+                    str(upload_result['files_uploaded']),
+                    str(upload_result['total_rows']),
+                    request_id
+                ))
+                conn.commit()
+                cursor.close()
+                release_db_connection(conn)
+
+                logger.info(f"Updated database with audit upload status for request {request_id}")
+        except Exception as db_error:
+            logger.error(f"Failed to update database with audit status: {db_error}")
+
+    except Exception as e:
+        logger.error(f"Audit upload task {task_id} failed: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        progress_tracker.fail_task(task_id, str(e))
+
+        # Update database with failed audit upload status
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                requests_table = config.get_table_name('requests')
+
+                error_message = f"Audit upload failed: {str(e)[:200]}"
+
+                update_sql = f"""
+                    UPDATE {requests_table}
+                    SET request_desc = COALESCE(request_desc, '') || ' | Audit: FAILED - ' || %s
+                    WHERE request_id = %s
+                """
+
+                cursor.execute(update_sql, (error_message, request_id))
+                conn.commit()
+                cursor.close()
+                release_db_connection(conn)
+
+                logger.info(f"Updated database with failed audit status for request {request_id}")
+        except Exception as db_error:
+            logger.error(f"Failed to update database with failed audit status: {db_error}")
+
+    finally:
+        # Decrement active upload counter
+        global active_uploads_count
+        with active_uploads_lock:
+            active_uploads_count -= 1
+            logger.info(f"Audit upload slot released ({active_uploads_count}/{max_concurrent} active)")
+
+        # Disconnect from Snowflake
+        try:
+            if 'audit_service' in locals():
+                audit_service.disconnect()
+        except Exception as disconnect_error:
+            logger.warning(f"Failed to disconnect from LPT Snowflake: {disconnect_error}")
