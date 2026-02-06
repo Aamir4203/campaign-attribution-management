@@ -492,6 +492,14 @@ features:
   hybrid_input_mode: true
   realtime_validation: true
   dual_sf_upload: false  # Default state for dual upload toggle (false=OFF, true=ON)
+  automation_enabled: true  # Enable/disable request automation scheduler (true=ON, false=OFF)
+
+# Request Automation Configuration
+automation:
+  enabled: false  # Master switch for automation scheduler
+  interval_seconds: 15  # How often to run requestPicker.sh
+  script_path: "./SCRIPTS/requestPicker.sh"  # Path to requestPicker.sh (relative to project root)
+  script_timeout_seconds: 300  # Timeout for script execution (5 minutes)
 
 # Frontend Configuration
 frontend:

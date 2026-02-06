@@ -117,6 +117,13 @@ def register_blueprints():
         except ImportError as e:
             logger.warning(f"⚠️ Snowflake routes not available: {e}")
 
+        try:
+            from routes.automation_routes import automation_bp
+            app.register_blueprint(automation_bp)
+            logger.info("✅ Registered automation routes")
+        except ImportError as e:
+            logger.warning(f"⚠️ Automation routes not available: {e}")
+
         logger.info("✅ All available blueprints registered successfully")
         return True
 
@@ -146,6 +153,22 @@ def log_startup_info():
 
 # Call startup logging immediately
 log_startup_info()
+
+
+# Auto-start automation scheduler (if enabled in config)
+try:
+    automation_config = config.get_config_value('automation', {})
+    automation_enabled = automation_config.get('enabled', False)
+
+    if automation_enabled:
+        from services import automation
+        automation.start()
+        interval = automation_config.get('interval_seconds', 15)
+        logger.info(f"🤖 Request automation started - requestPicker.sh will run every {interval} seconds")
+    else:
+        logger.info("⏸️ Request automation is DISABLED in config (automation.enabled=false)")
+except Exception as e:
+    logger.error(f"⚠️ Failed to start automation: {e}")
 
 
 # Global error handlers
@@ -182,7 +205,17 @@ def handle_exception(e):
 # Graceful shutdown handler
 def signal_handler(sig, frame):
     """Handle graceful shutdown on SIGINT/SIGTERM"""
-    logger.info("🛑 Shutdown signal received, closing database pool...")
+    logger.info("🛑 Shutdown signal received...")
+
+    # Stop automation
+    try:
+        from services import automation
+        automation.stop()
+        logger.info("✅ Automation stopped")
+    except Exception as e:
+        logger.error(f"⚠️ Error stopping automation: {e}")
+
+    # Close database pool
     db.close_pool()
     logger.info("✅ Graceful shutdown complete")
     sys.exit(0)
