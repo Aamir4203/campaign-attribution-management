@@ -4,6 +4,8 @@ import sys
 import csv
 import time
 import logging
+import threading
+from queue import Queue
 from datetime import datetime
 from multiprocessing import Pool, Manager, cpu_count
 import pandas as pd
@@ -39,6 +41,125 @@ def status_up(desc):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def create_indexes_parallel(dtb, sup_l, logger):
+    """
+    Create multiple indexes in parallel using threads.
+    Each thread creates one index with its own database connection.
+
+    Args:
+        dtb: Table name (partition)
+        sup_l: 'True' if suppression (md5) index needed
+        logger: Logger instance
+
+    Returns:
+        True if all indexes created successfully, False otherwise
+    """
+    results = Queue()
+
+    def create_single_index(index_name, columns):
+        """Worker thread to create one index."""
+        conn = None
+        cursor = None
+        try:
+            # Each thread needs its own connection
+            conn = psycopg2.connect(
+                host="zds-prod-pgdb01-01.bo3.e-dialog.com",
+                database="apt_tool_db",
+                user="datateam"
+            )
+            cursor = conn.cursor()
+
+            # Check if index exists
+            cursor.execute(
+                f"SELECT indexname FROM pg_indexes WHERE tablename = '{dtb}' AND indexname = '{index_name}'"
+            )
+            if cursor.fetchone():
+                logger.info(f"Index {index_name} already exists on {dtb}")
+                results.put((index_name, True))
+                return
+
+            # Build CREATE INDEX statement
+            sql = f"CREATE INDEX {index_name} ON {dtb} ({columns})"
+
+            logger.info(f"Creating index {index_name} on {dtb}...")
+            start_time = datetime.now()
+
+            cursor.execute(sql)
+            conn.commit()
+
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"✅ {index_name} created in {duration:.2f}s on {dtb}")
+            results.put((index_name, True))
+
+        except Exception as e:
+            logger.error(f"❌ Failed to create {index_name} on {dtb}: {e}")
+            results.put((index_name, False))
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+    # Define indexes to create
+    # Extract request_id and decile from table name for shorter index names
+    # Table format: apt_custom_{request_id}_{client}_{week}_trt_table_bolem_{decile}
+    parts = dtb.split('_')
+    try:
+        request_id = parts[2]  # request_id
+        decile = parts[-1]      # decile number
+        idx_prefix = f"idx_{request_id}_{decile}"
+    except:
+        # Fallback to original naming if parsing fails
+        idx_prefix = f"{dtb}"
+
+    indexes_to_create = [
+        (f"{idx_prefix}_email", "email", None),
+        (f"{idx_prefix}_seg_subseg", "segment, subseg", None),  # CRITICAL for MODULE 4
+    ]
+
+    # Add md5 index if suppression is enabled
+    if sup_l == 'True':
+        indexes_to_create.append(
+            (f"{idx_prefix}_md5", "md5hash", None)
+        )
+
+    logger.info(f"Creating {len(indexes_to_create)} indexes in parallel on {dtb}")
+    index_start = datetime.now()
+
+    # Launch parallel threads for index creation
+    threads = []
+    for idx_name, columns, _ in indexes_to_create:
+        thread = threading.Thread(
+            target=create_single_index,
+            args=(idx_name, columns)
+        )
+        thread.start()
+        threads.append(thread)
+
+    # Wait for all index creation threads to complete
+    for thread in threads:
+        thread.join()
+
+    index_end = datetime.now()
+    total_duration = (index_end - index_start).total_seconds()
+
+    # Check results
+    success = True
+    failed_indexes = []
+    while not results.empty():
+        idx_name, status = results.get()
+        if not status:
+            success = False
+            failed_indexes.append(idx_name)
+
+    if success:
+        logger.info(f"✅ All {len(indexes_to_create)} indexes created in {total_duration:.2f}s on {dtb}")
+    else:
+        logger.error(f"❌ Failed to create indexes on {dtb}: {failed_indexes}")
+
+    return success
 
 
 def main(args):
@@ -83,7 +204,7 @@ def main(args):
                 with open(d_file, 'wt', newline='') as f:
                     writer = csv.writer(f, delimiter='|')
                     while True:
-                        rows = sf_cursor.fetchmany(size=3000000)
+                        rows = sf_cursor.fetchmany(size=2000000)
                         if not rows:
                             break
                         writer.writerows(rows)
@@ -99,39 +220,35 @@ def main(args):
                     time.sleep(5)
                     attempt += 1
         # --- PostgreSQL load with COPY  ---
+        dtb = f"{trt_tb}_{client}".lower()
         with open(d_file, 'r') as f:
-            dtb = f"{trt_tb}_{client}".lower()
+            logger.info(f"Starting COPY to {dtb}...")
+            copy_start = datetime.now()
             pgdb1_cursor.copy_expert(f"COPY {dtb} FROM STDIN WITH DELIMITER '|' CSV", f)
             pgdb1_conn.commit()
-            pgdb1_cursor.execute(
-                f"""SELECT indexname FROM pg_indexes WHERE tablename ='{dtb}'  AND indexname ='{dtb}_email_idx'""")
-            result = pgdb1_cursor.fetchone()
-            if not result:
-                try:
-                    logger.info(f"Adding index on email level on {dtb}")
-                    pgdb1_cursor.execute(f"create index {dtb}_email_idx on  {dtb} (email) ")
-                    pgdb1_conn.commit()  # Commit after index creation
-                except Exception as e:
-                    logger.info("Unable to create index on table")
-                    status_up("Unable to create index on TRT")
-                    event.set()
-                    return
-                    sys.exit(1)
-            if sup_l == 'True':
-                pgdb1_cursor.execute(
-                    f"""SELECT indexname FROM pg_indexes WHERE tablename ='{dtb}'  AND indexname ='{dtb}_md5_idx'""")
-                mresult = pgdb1_cursor.fetchone()
-                if not mresult:
-                    try:
-                        logger.info(f"Adding index on md5 level on {dtb}")
-                        pgdb1_cursor.execute(f"create index {dtb}_md5_idx on  {dtb} (md5hash) ")
-                        pgdb1_conn.commit()
-                    except Exception as e:
-                        logger.info("Unable to create Md5 index on table")
-                        status_up("Unable to create md5 index on TRT")  # status_up is not defined
-                        event.set()
-                        return
-                        sys.exit(1)
+            copy_duration = (datetime.now() - copy_start).total_seconds()
+            logger.info(f"✅ COPY completed in {copy_duration:.2f}s for {dtb}")
+
+        # Create indexes in parallel (email, segment/subseg, optionally md5)
+        logger.info(f"Data load complete for {dtb}. Starting parallel index creation...")
+        index_success = create_indexes_parallel(dtb, sup_l, logger)
+
+        if not index_success:
+            logger.error(f"Index creation failed for {dtb}")
+            status_up("Unable to create indexes on TRT")
+            event.set()
+            return
+
+        # Run ANALYZE to update table statistics for query planner
+        try:
+            logger.info(f"Running ANALYZE on {dtb} to update statistics")
+            analyze_start = datetime.now()
+            pgdb1_cursor.execute(f"ANALYZE {dtb}")
+            pgdb1_conn.commit()
+            analyze_duration = (datetime.now() - analyze_start).total_seconds()
+            logger.info(f"✅ ANALYZE completed in {analyze_duration:.2f}s for {dtb}")
+        except Exception as e:
+            logger.warning(f"ANALYZE failed for {dtb}: {e}")
         os.remove(d_file)
         logger.info(f"Temporary file {d_file} removed")
         dend_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(python3 -m py_compile:*)",
+      "Bash(wc:*)",
+      "Bash(python3:*)",
+      "Bash(source ../CAM_Env/bin/activate)",
+      "Bash(python app.py:*)",
+      "Bash(lsof:*)",
+      "Bash(netstat:*)",
+      "Bash(ss:*)",
+      "Bash(kill:*)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Bash(for file in routes/*.py)",
+      "Bash(do [ -f \"$file\" ])",
+      "Bash(done)",
+      "Bash(cd:*)",
+      "Bash(head:*)",
+      "Bash(git config:*)",
+      "Bash(xargs file:*)",
+      "Bash(if [ -f \"REPORT_FILES/TimeStampReport_TestClient_Week1.csv\" ])",
+      "Bash(then file \"REPORT_FILES/TimeStampReport_TestClient_Week1.csv\")",
+      "Bash(else echo \"Sample report file not found\")",
+      "Bash(fi)",
+      "Bash(source CAM_Env/bin/activate:*)",
+      "Bash(pip freeze:*)",
+      "Bash(pip check:*)",
+      "Bash(if [ -f .gitattributes ])",
+      "Bash(then echo \"File exists:\")",
+      "Bash(else echo \"No .gitattributes file found\")",
+      "Bash(if [ -f .env ])",
+      "Bash(then echo \"Found existing .env\")",
+      "Bash(else echo \"No .env file, will create new one\")",
+      "Bash(python test_snowflake_connection.py:*)",
+      "Bash(chmod:*)",
+      "Bash(psql:*)"
+    ]
+  }
+}
