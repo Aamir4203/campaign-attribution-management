@@ -1,7 +1,7 @@
 #/bin/bash
 
 CONNECTION_STRING="psql -U datateam -h zds-prod-pgdb01-01.bo3.e-dialog.com -d apt_tool_db"
-MAIN_PATH=/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB
+MAIN_PATH=/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management
 HOMEPATH=$MAIN_PATH
 SPOOLPATH=$HOMEPATH/PURGED_DATA
 BKP_PATH=$HOMEPATH/PURGED_DATA

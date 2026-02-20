@@ -452,7 +452,7 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
                 cursor = conn.cursor()
                 requests_table = config.get_table_name('requests')
 
-                success_message = f"Production: {row_count:,} rows → {table_name}"
+                success_message = "SF: Uploaded"
 
                 update_sql = f"""
                     UPDATE {requests_table}
@@ -483,7 +483,7 @@ def _process_snowflake_upload(task_id: str, request_id: int, client_name: str,
                 cursor = conn.cursor()
                 requests_table = config.get_table_name('requests')
 
-                error_message = f"Snowflake upload failed: {str(e)[:450]}"
+                error_message = "SF: FAILED"
 
                 update_sql = f"""
                     UPDATE {requests_table}
@@ -710,18 +710,14 @@ def _process_audit_upload(task_id: str, request_id: int, client_name: str, week:
                 cursor = conn.cursor()
                 requests_table = config.get_table_name('requests')
 
-                # Add custom column for audit upload tracking (if not exists)
+                # Append "| Audit: Uploaded" to request_desc (assumes "SF: Uploaded" is already there from production upload)
                 update_sql = f"""
                     UPDATE {requests_table}
-                    SET request_desc = COALESCE(request_desc, '') || ' | Audit: ' || %s || ' files, ' || %s || ' rows'
+                    SET request_desc = COALESCE(request_desc, '') || ' | Audit: Uploaded'
                     WHERE request_id = %s
                 """
 
-                cursor.execute(update_sql, (
-                    str(upload_result['files_uploaded']),
-                    str(upload_result['total_rows']),
-                    request_id
-                ))
+                cursor.execute(update_sql, (request_id,))
                 conn.commit()
                 cursor.close()
                 release_db_connection(conn)
@@ -743,15 +739,14 @@ def _process_audit_upload(task_id: str, request_id: int, client_name: str, week:
                 cursor = conn.cursor()
                 requests_table = config.get_table_name('requests')
 
-                error_message = f"Audit upload failed: {str(e)[:200]}"
-
+                # Append "| Audit: FAILED" to request_desc (simpler message)
                 update_sql = f"""
                     UPDATE {requests_table}
-                    SET request_desc = COALESCE(request_desc, '') || ' | Audit: FAILED - ' || %s
+                    SET request_desc = COALESCE(request_desc, '') || ' | Audit: FAILED'
                     WHERE request_id = %s
                 """
 
-                cursor.execute(update_sql, (error_message, request_id))
+                cursor.execute(update_sql, (request_id,))
                 conn.commit()
                 cursor.close()
                 release_db_connection(conn)

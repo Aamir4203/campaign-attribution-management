@@ -5,16 +5,19 @@ import sys
 import subprocess
 import os
 
+# Import configuration loader
+from config_loader import get_config
 
-pg_config = {
-    "dbname": "apt_tool_db",
-    "user": "datateam",
-    "host": "zds-prod-pgdb01-01.bo3.e-dialog.com",
-}
+# Load config
+cfg = get_config()
 
-conn = psycopg2.connect(**pg_config)
-conn.autocommit = True
-cursor = conn.cursor()
+# Get connection using DbConns (need to import after config)
+sys.path.append(cfg.python_modules_path)
+from DbConns import *
+
+# Global connection and cursor (will be initialized in main)
+conn = None
+cursor = None
 
 
 def main(table_name, rpo, engine):
@@ -91,23 +94,30 @@ if __name__ == "__main__":
     # Track this process
     track_command = f"""
     track_process() {{
-        source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
-        source $TRACKING_HELPER
+        source {cfg.get_config_properties_path(request_id)}
+        source {cfg.tracking_helper_path}
         append_process_id $1 "OPEN_CLICK_ADJUSTMENT"
     }}
     track_process {request_id}
     """
     subprocess.run(["bash", "-c", track_command], check=False)
 
+    # Initialize global connection
+    conn, cursor = getPgConnection()
+    conn.autocommit = True
+
+    # Create SQLAlchemy engine using config
     engine = create_engine(
-        "postgresql+psycopg2://datateam:@zds-prod-pgdb01-01.bo3.e-dialog.com/apt_tool_db"
+        f"postgresql+psycopg2://{cfg.db_user}:@{cfg.db_host}/{cfg.db_name}"
     )
-    tb_info = pd.read_sql(
-        "SELECT a.request_id,a.week,a.query,a.decile_wise_report_path,b.client_name,a.SUPP_PATH FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND a,apt_custom_client_info_table_dnd b  WHERE request_id="
-        + request_id
-        + " and a.client_id=b.client_id",
-        con=engine,
-    )
+
+    # Use config query to get request details
+    request_query = cfg.get_request_details_query(request_id)
+    tb_info = pd.read_sql(request_query, con=engine)
+
+    # Extract only required columns from comprehensive query result
+    tb_info = tb_info[['request_id', 'client_name', 'week', 'decile_wise_report_path']]
+
     cpm_rpt_path = tb_info["decile_wise_report_path"][0]
     rpo = pd.read_csv(
         cpm_rpt_path,
@@ -125,8 +135,21 @@ if __name__ == "__main__":
         ],
         dtype={"decile": "str"},
     )
-    table_name = f"APT_CUSTOM_{tb_info['request_id'][0]}_{tb_info['client_name'][0]}_{tb_info['week'][0]}_POSTBACK_TABLE"
-    if rpo["decile"].drop_duplicates().count() > 1:
-        for i in range(0, rpo["Delivered"].count() + 5):
-            main(table_name, rpo, engine)
-    cursor.close()
+    # Generate table name using config template
+    table_name = cfg.get_postback_table(
+        str(tb_info['request_id'][0]),
+        tb_info['client_name'][0],
+        tb_info['week'][0]
+    )
+
+    try:
+        if rpo["decile"].drop_duplicates().count() > 1:
+            for i in range(0, rpo["Delivered"].count() + 5):
+                main(table_name, rpo, engine)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+        if engine:
+            engine.dispose()

@@ -35,7 +35,12 @@
       "Bash(else echo \"No .env file, will create new one\")",
       "Bash(python test_snowflake_connection.py:*)",
       "Bash(chmod:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(ls:*)",
+      "WebSearch",
+      "WebFetch(domain:support.claude.com)",
+      "Bash(grep:*)",
+      "Bash(bash:*)"
     ]
   }
 }

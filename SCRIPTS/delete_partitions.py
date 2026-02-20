@@ -7,11 +7,16 @@ import logging
 import subprocess
 import os
 
-DB_HOST = "zds-prod-pgdb01-01.bo3.e-dialog.com"
-DB_PORT = "5432"
-DB_NAME = "apt_tool_db"
-DB_USER = "datateam"
-DB_PASSWORD = "Datat3amSU!"
+# Import configuration loader
+from config_loader import get_config
+
+# Load config
+cfg = get_config()
+
+# Add python modules path and import DbConns
+import sys
+sys.path.append(cfg.python_modules_path)
+from DbConns import *
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -26,8 +31,8 @@ def execute_query(query_and_request_id):
         if request_id:
             track_command = f"""
             track_process() {{
-                source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
-                source $TRACKING_HELPER
+                source {cfg.get_config_properties_path(request_id)}
+                source {cfg.tracking_helper_path}
                 append_process_id $1 "DELETE_PARTITION_WORKER"
             }}
             track_process {request_id}
@@ -39,16 +44,9 @@ def execute_query(query_and_request_id):
                 stderr=subprocess.DEVNULL,
             )
 
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-        )
+        # Use DbConns for connection
+        conn, cur = getPgConnection()
         conn.autocommit = True
-
-        cur = conn.cursor()
 
         cur.execute(query)
 
@@ -80,16 +78,9 @@ def parse_query_and_get_table(query):
 
 def get_partition_names(table_name):
     try:
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            port=DB_PORT,
-            database=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-        )
+        # Use DbConns for connection
+        conn, cur = getPgConnection()
         conn.autocommit = True
-
-        cur = conn.cursor()
 
         cur.execute(
             sql.SQL(
@@ -128,8 +119,8 @@ if __name__ == "__main__":
         # Track main process - create bash function to handle positional parameters
         track_command = f"""
         track_process() {{
-            source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
-            source $TRACKING_HELPER
+            source {cfg.get_config_properties_path(request_id)}
+            source {cfg.tracking_helper_path}
             append_process_id $1 "DELETE_PARTITION_MAIN"
         }}
         track_process {request_id}

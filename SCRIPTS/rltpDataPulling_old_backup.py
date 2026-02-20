@@ -1,0 +1,436 @@
+import os
+import re
+import sys
+import csv
+import time
+import logging
+import threading
+from queue import Queue
+from datetime import datetime
+from multiprocessing import Pool, Manager, cpu_count
+import pandas as pd
+import psycopg2
+import snowflake.connector
+from sqlalchemy import create_engine, inspect
+import configparser
+# from cryptography.hazmat.backends import default_backend
+# from cryptography.hazmat.primitives import serialization
+import snowflake.connector
+import yaml
+import warnings
+import log_module
+import subprocess
+
+sys.path.append('/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES/')
+from DbConns import *
+from DB_conns import *
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
+
+def init_worker(shared_event):
+    global event
+    event = shared_event
+
+
+def status_up(desc):
+    conn, cur = getPgConnection()
+    cur.execute(
+        f"update APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND set request_status='E',request_desc='{desc}',error_code=1 where request_id={sys.argv[1]}"
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def create_indexes_parallel(dtb, sup_l, logger):
+    """
+    Create multiple indexes in parallel using threads.
+    Each thread creates one index with its own database connection.
+
+    Args:
+        dtb: Table name (partition)
+        sup_l: 'True' if suppression (md5) index needed
+        logger: Logger instance
+
+    Returns:
+        True if all indexes created successfully, False otherwise
+    """
+    results = Queue()
+
+    def create_single_index(index_name, columns):
+        """Worker thread to create one index."""
+        conn = None
+        cursor = None
+        try:
+            # Each thread needs its own connection
+            conn = psycopg2.connect(
+                host="zds-prod-pgdb01-01.bo3.e-dialog.com",
+                database="apt_tool_db",
+                user="datateam"
+            )
+            cursor = conn.cursor()
+
+            # Check if index exists
+            cursor.execute(
+                f"SELECT indexname FROM pg_indexes WHERE tablename = '{dtb}' AND indexname = '{index_name}'"
+            )
+            if cursor.fetchone():
+                logger.info(f"Index {index_name} already exists on {dtb}")
+                results.put((index_name, True))
+                return
+
+            # Build CREATE INDEX statement
+            sql = f"CREATE INDEX {index_name} ON {dtb} ({columns})"
+
+            logger.info(f"Creating index {index_name} on {dtb}...")
+            start_time = datetime.now()
+
+            cursor.execute(sql)
+            conn.commit()
+
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"✅ {index_name} created in {duration:.2f}s on {dtb}")
+            results.put((index_name, True))
+
+        except Exception as e:
+            logger.error(f"❌ Failed to create {index_name} on {dtb}: {e}")
+            results.put((index_name, False))
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+    # Define indexes to create
+    # Extract request_id and decile from table name for shorter index names
+    # Table format: apt_custom_{request_id}_{client}_{week}_trt_table_bolem_{decile}
+    parts = dtb.split('_')
+    try:
+        request_id = parts[2]  # request_id
+        decile = parts[-1]      # decile number
+        idx_prefix = f"idx_{request_id}_{decile}"
+    except:
+        # Fallback to original naming if parsing fails
+        idx_prefix = f"{dtb}"
+
+    indexes_to_create = [
+        (f"{idx_prefix}_email", "email", None),
+        (f"{idx_prefix}_seg_subseg", "segment, subseg", None),  # CRITICAL for MODULE 4
+    ]
+
+    # Add md5 index if suppression is enabled
+    if sup_l == 'True':
+        indexes_to_create.append(
+            (f"{idx_prefix}_md5", "md5hash", None)
+        )
+
+    logger.info(f"Creating {len(indexes_to_create)} indexes in parallel on {dtb}")
+    index_start = datetime.now()
+
+    # Launch parallel threads for index creation
+    threads = []
+    for idx_name, columns, _ in indexes_to_create:
+        thread = threading.Thread(
+            target=create_single_index,
+            args=(idx_name, columns)
+        )
+        thread.start()
+        threads.append(thread)
+
+    # Wait for all index creation threads to complete
+    for thread in threads:
+        thread.join()
+
+    index_end = datetime.now()
+    total_duration = (index_end - index_start).total_seconds()
+
+    # Check results
+    success = True
+    failed_indexes = []
+    while not results.empty():
+        idx_name, status = results.get()
+        if not status:
+            success = False
+            failed_indexes.append(idx_name)
+
+    if success:
+        logger.info(f"✅ All {len(indexes_to_create)} indexes created in {total_duration:.2f}s on {dtb}")
+    else:
+        logger.error(f"❌ Failed to create indexes on {dtb}: {failed_indexes}")
+
+    return success
+
+
+def main(args):
+    client, trt_tb, qr, sup_l, n, deciles_, path, client_id, Audit_TRT_limit, = args
+    sf_conn, sf_cursor = getSnowflake()
+    pgdb1_conn, pgdb1_cursor = getPgConnection()
+    try:
+        # Track this worker process
+        track_command = f"""
+        track_process() {{
+            source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+            source $TRACKING_HELPER
+            append_process_id $1 "RLTP_WORKER_{client}"
+        }}
+        track_process {sys.argv[1]}
+        """
+        subprocess.run(["bash", "-c", track_command], check=False)
+
+        if event.is_set():
+            return
+        if deciles_ == 'True':
+            de = qr.split(',')[4].strip().split(' ')[0]
+            if not re.findall('where', qr, re.IGNORECASE):
+                qr = f"{qr} WHERE {de}='{client}'"
+            else:
+                qr = f"{qr} AND {de}='{client}'"
+        dstart_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info(f"RLTP Data pulling started for decile {client} at: {dstart_time}")
+        sample_qr = f"{qr.strip().rstrip(';')} LIMIT 3"
+        logger.info(f"Sampling query (Snowflake):: {sample_qr}")
+        sf_cursor.execute(sample_qr)
+        sample_rows = sf_cursor.fetchall()
+        logger.info(f"Sample rows for {client}: {sample_rows}")
+        if client_id in [180, 181, 182, 183, 184, 185, 187, 188, 189, 190]:
+            qr = f"{qr} order by random() limit {Audit_TRT_limit}"
+        d_file = f"{path}/FILES/decile_{client}.csv"
+        attempt = 1
+        while attempt <= 3:
+            try:
+                logger.info(f"Execution query :: {qr}")
+                sf_cursor.execute(qr)
+                with open(d_file, 'wt', newline='') as f:
+                    writer = csv.writer(f, delimiter='|')
+                    while True:
+                        rows = sf_cursor.fetchmany(size=2000000)
+                        if not rows:
+                            break
+                        writer.writerows(rows)
+                logger.info(f"File written: {d_file} on attempt {attempt}")
+                break
+            except Exception as e:
+                logger.error(f"Attempt {attempt}: Unable to pull RLTP data for {client}: {e}", exc_info=True)
+                if attempt == 3:
+                    event.set()
+                    return
+                else:
+                    logger.info(f"Retrying to pull RLTP data for {client} after 5 seconds...")
+                    time.sleep(5)
+                    attempt += 1
+        # --- PostgreSQL load with COPY  ---
+        dtb = f"{trt_tb}_{client}".lower()
+        with open(d_file, 'r') as f:
+            logger.info(f"Starting COPY to {dtb}...")
+            copy_start = datetime.now()
+            pgdb1_cursor.copy_expert(f"COPY {dtb} FROM STDIN WITH DELIMITER '|' CSV", f)
+            pgdb1_conn.commit()
+            copy_duration = (datetime.now() - copy_start).total_seconds()
+            logger.info(f"✅ COPY completed in {copy_duration:.2f}s for {dtb}")
+
+        # Create indexes in parallel (email, segment/subseg, optionally md5)
+        logger.info(f"Data load complete for {dtb}. Starting parallel index creation...")
+        index_success = create_indexes_parallel(dtb, sup_l, logger)
+
+        if not index_success:
+            logger.error(f"Index creation failed for {dtb}")
+            status_up("Unable to create indexes on TRT")
+            event.set()
+            return
+
+        # Run ANALYZE to update table statistics for query planner
+        try:
+            logger.info(f"Running ANALYZE on {dtb} to update statistics")
+            analyze_start = datetime.now()
+            pgdb1_cursor.execute(f"ANALYZE {dtb}")
+            pgdb1_conn.commit()
+            analyze_duration = (datetime.now() - analyze_start).total_seconds()
+            logger.info(f"✅ ANALYZE completed in {analyze_duration:.2f}s for {dtb}")
+        except Exception as e:
+            logger.warning(f"ANALYZE failed for {dtb}: {e}")
+        os.remove(d_file)
+        logger.info(f"Temporary file {d_file} removed")
+        dend_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        total_ex = datetime.strptime(dend_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(dstart_time,
+                                                                                         "%Y-%m-%d %H:%M:%S")
+        logger.info(f"Execution time for decile {client}: {total_ex}")
+    except Exception as e:
+        logger.error(f"Error processing {client}: {e}", exc_info=True)
+        status_up("Unable to pull data from RLTP")
+        event.set()
+        return
+        sys.exit(1)
+    finally:
+        if 'sf_cursor' in locals() and sf_cursor:
+            sf_cursor.close()
+        if 'sf_conn' in locals() and sf_conn:
+            sf_conn.close()
+        if 'pgdb1_cursor' in locals() and pgdb1_cursor:
+            pgdb1_cursor.close()
+        if 'pgdb1_conn' in locals() and pgdb1_conn:
+            pgdb1_conn.close()
+
+
+if __name__ == "__main__":
+    try:
+        global logger, path, df
+        n = 1
+        request_id = sys.argv[1]
+
+        # Track main process
+        track_command = f"""
+        track_process() {{
+            source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+            source $TRACKING_HELPER
+            append_process_id $1 "RLTP_MAIN"
+        }}
+        track_process {request_id}
+        """
+        subprocess.run(["bash", "-c", track_command], check=False)
+
+        path = (
+                "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/"
+                + request_id
+        )
+
+        lpath = f"{path}/LOGS"
+        logger = log_module.setup_logging(lpath)
+        logger.info("Logs path: {}".format(lpath))
+        start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info("RLTP data pulling started at : " + start_time)
+
+        pgdb1_conn, pgdb1_cursor = getPgConnection()
+        df = pd.read_sql(
+            "SELECT a.request_id,a.week,a.query,a.decile_wise_report_path,b.client_name,a.SUPP_PATH,a.client_id FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND a,apt_custom_client_info_table_dnd b  WHERE request_id="
+            + request_id
+            + " and a.client_id=b.client_id",
+            con=pgdb1_conn,
+        )
+        pgdb1_conn.close()  # Close the initial connection
+        trt_tb = (f"apt_custom_{df['request_id'][0]}_{df['client_name'][0]}_{df['week'][0]}_trt_table").lower()
+        df3 = pd.read_csv(df['decile_wise_report_path'][0], sep='|', header=None, thousands=',')
+        df3.columns = ['Delivered', 'Opens', 'clicks', 'unsubs', 'segment', 'sub_seg', 'decile', 'old_per']
+        dcnt = len(df3['decile'].drop_duplicates())
+        client_id = int(df["client_id"][0])
+        Audit_TRT_limit = df3["Delivered"].sum() + 5000000
+
+        client = ""
+        sup_l = 'True'
+        sup_p = df['supp_path'][0]
+        if sup_p != '':
+            sup = pd.read_csv(sup_p, nrows=10, header=None)
+            if not sup[0].str.contains('@').any():
+                logger.info("Adding index on md5 level")
+                sup_l = 'True'
+
+        # Extract the number from df['query'] and modify the query string
+        modified_queries = []
+        extracted_numbers = []
+        for query_string in df['query'][0].split(';'):
+            match = re.search(r'apt_rltp_request_raw_(\d+)_postback_file', query_string)
+            if match:
+                extracted_number = match.group(1)
+                extracted_numbers.append(extracted_number)
+                # Insert the rltpid into the select clause
+                modified_query = query_string.replace("priority", f"priority,'{extracted_number}' as rltpid", 1)
+                modified_queries.append(modified_query)
+            else:
+                # Handle the case where no number was extracted (e.g., log an error or keep the original query)
+                logger.warning(f"No number extracted from query: {query_string}. Keeping original query.")
+                modified_queries.append(query_string)
+
+        df['query'] = ";".join(modified_queries)
+        qry = df['query'][0].split(';')
+        sf_conn, sf_cursor = getSnowflake()
+        if qry:
+            sqr = qry[0] + ' LIMIT 3'
+            try:
+                samp = pd.read_sql(sqr, con=sf_conn)
+            except Exception as e:
+                logger.error("Unable to pull sample data from presto ::{}".format(e))
+                status_up("Unable to pull data from RLTP")
+                sys.exit(1)
+            logger.info(samp)
+            sf_conn.close()  # Close connection after sample pull
+        else:
+            logger.error("Snowflake query is not valid. Exiting.")
+            status_up("Unable to pull data from RLTP")
+            sys.exit(1)
+
+        std_cols = ['md5hash', 'email', 'segment', 'subseg', 'decile', 'priority']
+        req_cols = std_cols + list(samp.columns)[6::]  # Ensure no duplicates
+        colsn = ' varchar,'.join(req_cols) + ' varchar'
+
+        engine = create_engine('postgresql+psycopg2://datateam:@zds-prod-pgdb01-01.bo3.e-dialog.com/apt_tool_db')
+        inspector = inspect(engine)
+        try:
+            if not inspector.has_table(trt_tb):
+                pgdb1_conn, pgdb1_cursor = getPgConnection()  # Establish connection for table creation
+                pgdb1_cursor.execute(f"CREATE TABLE {trt_tb} ({colsn}) PARTITION BY LIST(decile)")
+                for i in list(df3['decile'].drop_duplicates()):
+                    pgdb1_cursor.execute(f"CREATE TABLE {trt_tb}_{i} PARTITION OF {trt_tb} FOR VALUES IN ('{i}')")
+                pgdb1_conn.commit()
+                pgdb1_conn.close()  # Close connection after table creation
+                logger.info('Tables created')
+        except Exception as e:
+            logger.error("Unable to create TRT tables")
+            status_up("Unable to create TRT tables")
+            sys.exit(1)
+
+        for qr in qry:
+            if re.findall('apt_rltp_request_raw_', qr):
+                dec = str(qr.split(",")[4].strip().split()[0])
+                deciles_ = 'False'
+                decilel = sorted(list(df3['decile'].drop_duplicates()), reverse=True)
+                if decilel[0] == 1 or dec == "'1'":
+                    decilel = [1]
+                if dcnt != 1 and dec != "'1'":
+                    deciles_ = 'True'
+                    decilel = sorted(list(df3['decile'].drop_duplicates()), reverse=True)
+                logger.info('Executing single decile function')
+                try:
+                    manager = Manager()
+                    shared_event = manager.Event()
+                    with Pool(processes=min(cpu_count(), 5), initializer=init_worker, initargs=(shared_event,)) as pool:
+                        pool.map(main,
+                                 [(client, trt_tb, qr, sup_l, n, deciles_, path, client_id, Audit_TRT_limit) for client
+                                  in decilel])
+                    logger.info("All threads for TRT are completed.")
+                except Exception as e:
+                    logger.error("An error occurred: %s", str(e), exc_info=True)
+                    status_up("Failed to Launch Worker nodes for TRT")
+                    sys.exit(1)
+                time.sleep(2)
+        end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info(f"Script ended at: {end_time}")
+        total_ex = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S") - datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S")
+        logger.info(f"Total Time taken: {total_ex}")
+
+        # Create a new connection for final updates
+        pgdb1_conn, pgdb1_cursor = getPgConnection()
+        try:
+            pgdb1_cursor.execute(
+                f"update APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND set request_desc='TRT Imported' where  request_id={sys.argv[1]}"
+            )
+            pgdb1_cursor.execute(f"select count(email) from {trt_tb}")
+            cnt = list(pgdb1_cursor.fetchone())[0]
+            pgdb1_cursor.execute(
+                f" update apt_custom_postback_qa_table_dnd set RLTP_FILE_COUNT={cnt} where request_id={sys.argv[1]}"
+            )
+            pgdb1_conn.commit()
+            logger.info(f"RLTP data pulling ended at : {total_ex}")
+        finally:
+            if pgdb1_cursor:
+                pgdb1_cursor.close()
+            if pgdb1_conn:
+                pgdb1_conn.close()
+    except Exception as e:
+        logger.error("Unable to pull data from RLTP ::{}".format(e))
+        status_up("Unable to pull data from RLTP")
+        try:
+            pool.terminate()
+            pool.join()
+        except:
+            pass
+        sys.exit(1)

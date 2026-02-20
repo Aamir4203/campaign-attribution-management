@@ -125,15 +125,58 @@ class ConfigManager:
         """Get specific external database configuration"""
         return self.get_external_databases().get(db_key, {})
 
-    def get_file_paths(self) -> Dict[str, str]:
+    def get_file_paths(self) -> Dict[str, Any]:
         """Get file system path configurations"""
         return self._config.get('file_paths', {})
 
-    def get_file_path(self, path_key: str, **kwargs) -> str:
-        """Get specific file path with optional formatting"""
-        path_template = self.get_file_paths().get(path_key, '')
+    def get_base_path(self) -> str:
+        """Get base file path for the project"""
+        return self.get_file_paths().get('base', '')
+
+    def get_file_path(self, path_key: str, absolute: bool = True, **kwargs) -> str:
+        """
+        Get specific file path with optional formatting.
+
+        Supports dot notation for nested paths (e.g., 'request.files').
+
+        Args:
+            path_key: Key to look up (e.g., 'scripts', 'request.files')
+            absolute: If True, prepends base path to relative paths
+            **kwargs: Values for template substitution (e.g., request_id='123')
+
+        Returns:
+            Formatted file path
+        """
+        file_paths = self.get_file_paths()
+
+        # Handle dot notation for nested paths (e.g., 'request.files')
+        keys = path_key.split('.')
+        path_template = file_paths
+
+        for key in keys:
+            if isinstance(path_template, dict):
+                path_template = path_template.get(key, '')
+            else:
+                path_template = ''
+                break
+
+        # If not found or not a string, return empty
+        if not isinstance(path_template, str):
+            return ''
+
+        # Apply kwargs for template substitution
         if kwargs:
-            return path_template.format(**kwargs)
+            try:
+                path_template = path_template.format(**kwargs)
+            except KeyError:
+                pass  # Leave unformatted if kwargs don't match
+
+        # Prepend base path for relative paths (if requested and path is relative)
+        if absolute and path_template and not path_template.startswith('/'):
+            base_path = self.get_base_path()
+            if base_path:
+                path_template = os.path.join(base_path, path_template)
+
         return path_template
 
     def get_alerts_config(self) -> Dict[str, str]:
@@ -183,7 +226,28 @@ class ConfigManager:
     def get_security_config(self) -> Dict[str, Any]:
         """Get security configuration"""
         return self._config.get('security', {})
-    
+
+    def get_config_value(self, key: str, default: Any = None) -> Any:
+        """
+        Get any top-level configuration value by key.
+
+        Args:
+            key: Top-level config key (e.g., 'automation', 'features')
+            default: Default value if key not found
+
+        Returns:
+            Configuration value or default
+        """
+        return self._config.get(key, default)
+
+    def get_automation_config(self) -> Dict[str, Any]:
+        """Get automation configuration"""
+        return self._config.get('automation', {})
+
+    def is_automation_enabled(self) -> bool:
+        """Check if automation is enabled"""
+        return self.get_automation_config().get('enabled', False)
+
     def get_environment(self) -> str:
         """Get environment setting"""
         return self._config.get('environment', 'development')

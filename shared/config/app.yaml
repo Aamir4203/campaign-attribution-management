@@ -1,7 +1,10 @@
 # CAM Application Configuration
 # Complete configuration for Campaign Attribution Management application
+# Version: 2.0 (Cleaned - No duplicates)
 
-# Database Configuration
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
 database:
   host: "zds-prod-pgdb01-01.bo3.e-dialog.com"
   port: 5432
@@ -9,6 +12,7 @@ database:
   username: "datateam"
   password: "Datat3amSU!"
   tables:
+    # Static table names
     clients: "APT_CUSTOM_CLIENT_INFO_TABLE_DND"
     requests: "APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND_TEST"
     qa_stats: "APT_CUSTOM_POSTBACK_QA_TABLE_DND"
@@ -19,12 +23,19 @@ database:
     new_ips: "APT_CUSTOM_VERIZON_NEW_IPS_DND"
     delivered: "apt_custom_partitioned_delivered_data_impala"
     users: "apt_custom_apt_tool_user_details_dnd"
+
+    # Dynamic table templates (use .format() to substitute values)
+    trt_table: "apt_custom_{request_id}_{client_name}_{week}_trt_table"
+    src_table: "apt_custom_{request_id}_{client_name}_{week}_src_table"
+    postback_table: "apt_custom_{request_id}_{client_name}_{week}_postback_table"
   pools:
     min_size: 5
     max_size: 20
     timeout: 30000
 
-# External Database Connections (for backend processing)
+# =============================================================================
+# EXTERNAL DATABASE CONNECTIONS
+# =============================================================================
 external_databases:
   snowflake:
     connection_string: "snowsql -c datateam1"
@@ -47,7 +58,9 @@ external_databases:
     password: "Cmp12cst01!!"
     connection_string: "mysql mt2_data -h cmprep-prod-ro-02-vip.bo3.e-dialog.com -u cmp_cust_user -pCmp12cst01!!"
 
-# Snowflake Upload Configuration
+# =============================================================================
+# SNOWFLAKE UPLOAD CONFIGURATION
+# =============================================================================
 snowflake:
   # Production Delivery Configuration (Existing)
   production:
@@ -76,47 +89,21 @@ snowflake:
       overwrite_on_reupload: true
     columns:
       standard_header:
-        - name: "Md5hash"
-          type: "VARCHAR"
-        - name: "Segment"
-          type: "VARCHAR"
-        - name: "SubSeg"
-          type: "VARCHAR"
-        - name: "Decile"
-          type: "VARCHAR"
-        - name: "DeliveredFlag"
-          type: "VARCHAR"
-        - name: "DeliveredDate"
-          type: "DATE"
-        - name: "Subject"
-          type: "VARCHAR"
-        - name: "Creative"
-          type: "VARCHAR"
-        - name: "OpenDate"
-          type: "DATE"
-        - name: "ClickDate"
-          type: "DATE"
-        - name: "UnsubDate"
-          type: "DATE"
-      excluded_columns:
-        - "priority"
-        - "status"
-        - "unsub"
-        - "freq"
-        - "id"
-        - "touch"
-        - "diff"
-      date_columns:
-        - "del_date"
-        - "open_date"
-        - "click_date"
-        - "unsub_date"
-        - "DeliveredDate"
-        - "OpenDate"
-        - "ClickDate"
-        - "UnsubDate"
+        - { name: "Md5hash", type: "VARCHAR" }
+        - { name: "Segment", type: "VARCHAR" }
+        - { name: "SubSeg", type: "VARCHAR" }
+        - { name: "Decile", type: "VARCHAR" }
+        - { name: "DeliveredFlag", type: "VARCHAR" }
+        - { name: "DeliveredDate", type: "DATE" }
+        - { name: "Subject", type: "VARCHAR" }
+        - { name: "Creative", type: "VARCHAR" }
+        - { name: "OpenDate", type: "DATE" }
+        - { name: "ClickDate", type: "DATE" }
+        - { name: "UnsubDate", type: "DATE" }
+      excluded_columns: ["priority", "status", "unsub", "freq", "id", "touch", "diff"]
+      date_columns: ["del_date", "open_date", "click_date", "unsub_date", "DeliveredDate", "OpenDate", "ClickDate", "UnsubDate"]
 
-  # Audit Delivery Configuration (LPT Account - New)
+  # Audit Delivery Configuration (LPT Account)
   audit:
     enabled: true
     temp_dir: "/tmp/snowflake_audit_uploads"
@@ -125,7 +112,6 @@ snowflake:
     max_file_size_mb: 10240  # 10GB max file size
     batch_size: 50000  # Larger batch size for audit
     purge_temp_files: true
-    # LPT Snowflake Account Credentials
     connection:
       account: "zetaglobal.us-east-1"
       user: "green_lp_service"
@@ -135,254 +121,131 @@ snowflake:
       schema: "INFS_LPT"
       warehouse: "GREENT_LPT2"
       role: "GREEN_ADMIN_ROLE"
-    # Table Configuration
     table:
-      prefix: "CUSTOM_ZX_STATS_MASTER"  # CUSTOM_ZX_STATS_MASTER_YYYY_MONTHNAME
-      name_template: "{prefix}_{year}_{month}"  # e.g., CUSTOM_ZX_STATS_MASTER_2026_JANUARY
+      name_template: "CUSTOM_ZX_STATS_MASTER_{year}_{month}"
       cluster_by: "line_item_id, delivereddate, offerid, segment, delivered"
       validate_existing_data: true  # Check for existing data before insert
       remove_old_data: true  # Remove old data for same client/date range
     # Fixed Audit Header (Order Matters!)
     columns:
       fixed_header:
-        - name: "Md5hash"
-          source_column: "md5hash"
-          type: "VARCHAR(16777216)"
-        - name: "Subject"
-          source_column: "subject"
-          type: "VARCHAR(16777216)"
-        - name: "Creative"
-          source_column: "creative"
-          type: "VARCHAR(16777216)"
-        - name: "del_date"
-          source_column: "del_date"
-          alias: "delivereddate"
-          type: "DATE"
-        - name: "open_date"
-          source_column: "open_date"
-          type: "DATE"
-        - name: "click_date"
-          source_column: "click_date"
-          type: "DATE"
-        - name: "unsub_date"
-          source_column: "unsub_date"
-          type: "DATE"
-        - name: "delivered"
-          source_column: "flag"
-          transform: "CASE WHEN flag IS NOT NULL THEN 'Y' ELSE flag END"
-          type: "VARCHAR(16777216)"
-        - name: "Segment"
-          source_column: "segment"
-          type: "VARCHAR(16777216)"
-        - name: "D_B_Segment"
-          source_column: "client_name"
-          is_parameter: true  # Will be replaced with actual client name
-          type: "VARCHAR(16777216)"
-        - name: "FILE_NAME"
-          source_column: "source_table"
-          is_parameter: true  # Will be replaced with actual source table name
-          type: "VARCHAR(16777216)"
-      # Complete table schema for CREATE TABLE
+        - { name: "Md5hash", source_column: "md5hash", type: "VARCHAR(16777216)" }
+        - { name: "Subject", source_column: "subject", type: "VARCHAR(16777216)" }
+        - { name: "Creative", source_column: "creative", type: "VARCHAR(16777216)" }
+        - { name: "del_date", source_column: "del_date", alias: "delivereddate", type: "DATE" }
+        - { name: "open_date", source_column: "open_date", type: "DATE" }
+        - { name: "click_date", source_column: "click_date", type: "DATE" }
+        - { name: "unsub_date", source_column: "unsub_date", type: "DATE" }
+        - { name: "delivered", source_column: "flag", transform: "CASE WHEN flag IS NOT NULL THEN 'Y' ELSE flag END", type: "VARCHAR(16777216)" }
+        - { name: "Segment", source_column: "segment", type: "VARCHAR(16777216)" }
+        - { name: "D_B_Segment", source_column: "client_name", is_parameter: true, type: "VARCHAR(16777216)" }
+        - { name: "FILE_NAME", source_column: "source_table", is_parameter: true, type: "VARCHAR(16777216)" }
       table_schema:
-        - name: "MD5HASH"
-          type: "VARCHAR(16777216)"
-        - name: "DELIVEREDDATE"
-          type: "DATE"
-        - name: "OPEN_DATE"
-          type: "DATE"
-        - name: "CLICK_DATE"
-          type: "DATE"
-        - name: "UNSUB_DATE"
-          type: "DATE"
-        - name: "CREATIVE"
-          type: "VARCHAR(16777216)"
-        - name: "SUBJECT"
-          type: "VARCHAR(16777216)"
-        - name: "TABLE_NAME"
-          type: "VARCHAR(16777216)"
-        - name: "FILE_NAME"
-          type: "VARCHAR(16777216)"
-        - name: "ID"
-          type: "NUMBER(38,0)"
-          autoincrement: true
-        - name: "LISTID"
-          type: "VARCHAR(16777216)"
-        - name: "PROFILEID"
-          type: "VARCHAR(16777216)"
-        - name: "EMAIL"
-          type: "VARCHAR(16777216)"
-        - name: "DEL_TS"
-          type: "TIMESTAMP_NTZ(9)"
-        - name: "OPEN_TS"
-          type: "TIMESTAMP_NTZ(9)"
-        - name: "CLICK_TS"
-          type: "TIMESTAMP_NTZ(9)"
-        - name: "BROWSER"
-          type: "VARCHAR(16777216)"
-        - name: "OFFERID"
-          type: "VARCHAR(16777216)"
-        - name: "DOMAIN"
-          type: "VARCHAR(16777216)"
-        - name: "MAILING_IP"
-          type: "VARCHAR(16777216)"
-        - name: "MSGID"
-          type: "VARCHAR(16777216)"
-        - name: "SUBID"
-          type: "VARCHAR(16777216)"
-        - name: "IPADDR"
-          type: "VARCHAR(16777216)"
-        - name: "CREATIVEID"
-          type: "VARCHAR(16777216)"
-        - name: "IO_ID"
-          type: "NUMBER(38,0)"
-        - name: "LINE_ITEM_ID"
-          type: "NUMBER(38,0)"
-        - name: "RC_IP"
-          type: "VARCHAR(16777216)"
-        - name: "PMTA_IP"
-          type: "VARCHAR(16777216)"
-        - name: "PMTA_FILENAME"
-          type: "VARCHAR(16777216)"
-        - name: "OPEN_FILENAME"
-          type: "VARCHAR(16777216)"
-        - name: "UNSUB_FILENAME"
-          type: "VARCHAR(16777216)"
-        - name: "CLICK_FILENAME"
-          type: "VARCHAR(16777216)"
-        - name: "UNSUB_TS"
-          type: "TIMESTAMP_NTZ(9)"
-        - name: "DELIVERED"
-          type: "VARCHAR(16777216)"
-        - name: "SEGMENT"
-          type: "VARCHAR(16777216)"
-        - name: "D_B_SEGMENT"
-          type: "VARCHAR(16777216)"
-        - name: "ADVERTISER_NAME"
-          type: "VARCHAR(16777216)"
-        - name: "BOUNCECAT"
-          type: "VARCHAR(16777216)"
-        - name: "DSNSTATUS"
-          type: "VARCHAR(16777216)"
-        - name: "DSNDIAG"
-          type: "VARCHAR(16777216)"
-        - name: "TYPE"
-          type: "VARCHAR(16777216)"
-    # Date Analysis Configuration
+        - { name: "MD5HASH", type: "VARCHAR(16777216)" }
+        - { name: "DELIVEREDDATE", type: "DATE" }
+        - { name: "OPEN_DATE", type: "DATE" }
+        - { name: "CLICK_DATE", type: "DATE" }
+        - { name: "UNSUB_DATE", type: "DATE" }
+        - { name: "CREATIVE", type: "VARCHAR(16777216)" }
+        - { name: "SUBJECT", type: "VARCHAR(16777216)" }
+        - { name: "TABLE_NAME", type: "VARCHAR(16777216)" }
+        - { name: "FILE_NAME", type: "VARCHAR(16777216)" }
+        - { name: "ID", type: "NUMBER(38,0)", autoincrement: true }
+        - { name: "LISTID", type: "VARCHAR(16777216)" }
+        - { name: "PROFILEID", type: "VARCHAR(16777216)" }
+        - { name: "EMAIL", type: "VARCHAR(16777216)" }
+        - { name: "DEL_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "OPEN_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "CLICK_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "BROWSER", type: "VARCHAR(16777216)" }
+        - { name: "OFFERID", type: "VARCHAR(16777216)" }
+        - { name: "DOMAIN", type: "VARCHAR(16777216)" }
+        - { name: "MAILING_IP", type: "VARCHAR(16777216)" }
+        - { name: "MSGID", type: "VARCHAR(16777216)" }
+        - { name: "SUBID", type: "VARCHAR(16777216)" }
+        - { name: "IPADDR", type: "VARCHAR(16777216)" }
+        - { name: "CREATIVEID", type: "VARCHAR(16777216)" }
+        - { name: "IO_ID", type: "NUMBER(38,0)" }
+        - { name: "LINE_ITEM_ID", type: "NUMBER(38,0)" }
+        - { name: "RC_IP", type: "VARCHAR(16777216)" }
+        - { name: "PMTA_IP", type: "VARCHAR(16777216)" }
+        - { name: "PMTA_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "OPEN_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "UNSUB_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "CLICK_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "UNSUB_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "DELIVERED", type: "VARCHAR(16777216)" }
+        - { name: "SEGMENT", type: "VARCHAR(16777216)" }
+        - { name: "D_B_SEGMENT", type: "VARCHAR(16777216)" }
+        - { name: "ADVERTISER_NAME", type: "VARCHAR(16777216)" }
+        - { name: "BOUNCECAT", type: "VARCHAR(16777216)" }
+        - { name: "DSNSTATUS", type: "VARCHAR(16777216)" }
+        - { name: "DSNDIAG", type: "VARCHAR(16777216)" }
+        - { name: "TYPE", type: "VARCHAR(16777216)" }
     date_analysis:
-      source_column: "del_date"  # Column to analyze for month grouping
-      month_names:
-        1: "JANUARY"
-        2: "FEBRUARY"
-        3: "MARCH"
-        4: "APRIL"
-        5: "MAY"
-        6: "JUNE"
-        7: "JULY"
-        8: "AUGUST"
-        9: "SEPTEMBER"
-        10: "OCTOBER"
-        11: "NOVEMBER"
-        12: "DECEMBER"
-      max_years: 2  # Maximum years span (e.g., Dec 2025 + Jan 2026)
-    # File Naming Convention
+      source_column: "del_date"
+      month_names: { 1: "JANUARY", 2: "FEBRUARY", 3: "MARCH", 4: "APRIL", 5: "MAY", 6: "JUNE", 7: "JULY", 8: "AUGUST", 9: "SEPTEMBER", 10: "OCTOBER", 11: "NOVEMBER", 12: "DECEMBER" }
+      max_years: 2
     file_naming:
-      prefix: "AUDIT"
-      format: "{prefix}_{client_name}_{year}_{month}_{timestamp}.csv"
+      format: "AUDIT_{client_name}_{year}_{month}_{timestamp}.csv"
       timestamp_format: "%Y%m%d_%H%M%S"
 
-  # Legacy/Backward Compatibility (Deprecated - use production instead)
-  upload:
-    enabled: true
-    temp_dir: "/tmp/snowflake_uploads"
-    file_delimiter: "|"
-    compression: "gzip"
-    max_file_size_mb: 500
-    max_concurrent_uploads: 2
-    batch_size: 10000
-    purge_temp_files: true
-  table:
-    name_template: "APT_CUSTOM_{client_name}_{week}_{date}"
-    schema_suffix: "_FINAL"
-    sf_final_table: "APT_CUSTOM_{client_name}_{week}_{date}_FINAL"
-    overwrite_on_reupload: true
-  columns:
-    standard_header:
-      - name: "Md5hash"
-        type: "VARCHAR"
-      - name: "Segment"
-        type: "VARCHAR"
-      - name: "SubSeg"
-        type: "VARCHAR"
-      - name: "Decile"
-        type: "VARCHAR"
-      - name: "DeliveredFlag"
-        type: "VARCHAR"
-      - name: "DeliveredDate"
-        type: "DATE"
-      - name: "Subject"
-        type: "VARCHAR"
-      - name: "Creative"
-        type: "VARCHAR"
-      - name: "OpenDate"
-        type: "DATE"
-      - name: "ClickDate"
-        type: "DATE"
-      - name: "UnsubDate"
-        type: "DATE"
-    excluded_columns:
-      - "priority"
-      - "status"
-      - "unsub"
-      - "freq"
-      - "id"
-      - "touch"
-      - "diff"
-    date_columns:
-      - "del_date"
-      - "open_date"
-      - "click_date"
-      - "unsub_date"
-      - "DeliveredDate"
-      - "OpenDate"
-      - "ClickDate"
-      - "UnsubDate"
-
-# File System Paths (Unix environment paths for backend processing)
+# =============================================================================
+# FILE SYSTEM PATHS (Project-Oriented)
+# =============================================================================
 file_paths:
-  main_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB"
-  main_scripts: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
-  home_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING"
-  files_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/FILES/"
-  spool_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/SPOOL/"
-  script_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/SCRIPTS/"
-  log_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/LOGS/"
-  backup_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/{request_id}/PURGED_DATA"
-  tracking_helper: "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/trackingHelper.sh"
+  # Base path - all other paths are relative to this
+  # NOTE: This is the project root folder (hyphen in name is fine for shell/Python)
+  base: "/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management"
 
-# Alert Configuration
+  # Relative paths (use with base)
+  scripts: "SCRIPTS"
+  request_processing: "REQUEST_PROCESSING"
+  tracking_helper: "SCRIPTS/trackingHelper.sh"
+
+  # External paths (absolute)
+  python_modules: "/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES"
+
+  # Request-specific paths (use {request_id} placeholder)
+  request:
+    root: "REQUEST_PROCESSING/{request_id}"
+    files: "REQUEST_PROCESSING/{request_id}/FILES"
+    spool: "REQUEST_PROCESSING/{request_id}/SPOOL"
+    scripts: "REQUEST_PROCESSING/{request_id}/SCRIPTS"
+    logs: "REQUEST_PROCESSING/{request_id}/LOGS"
+    backup: "REQUEST_PROCESSING/{request_id}/PURGED_DATA"
+    config: "REQUEST_PROCESSING/{request_id}/ETC"
+
+# =============================================================================
+# ALERTS CONFIGURATION
+# =============================================================================
 alerts:
-  email_recipients: "akhan@aptroid.com,datateam@aptroid.com"
+  email_recipients: "akhan@zetaglobal.com,attributionteam@zetaglobal.com"
   sender: "attributionalerts@zds-db3-02.bo3.e-dialog.com"
 
-# Application Constants
+# =============================================================================
+# APPLICATION CONSTANTS
+# =============================================================================
 constants:
   pagination:
     defaultPageSize: 50
     maxPageSize: 500
+
   requests:
     maxRetries: 3
     timeoutMs: 300000
-    validStatuses: ["P", "C", "E", "RW", "RE"]
-    defaultOldDeliveredPercentage: 65  # Default value for old_delivered_per field
+    validStatuses: ["V", "C", "E", "RW", "RE"]
+    defaultOldDeliveredPercentage: 65
     columns:
       requestIdSuppression: "request_id_supp"
       priorityFile: "priority_file"
       priorityFilePercentage: "priority_file_per"
       timeStampPath: "timestamp_report_path"
+
   files:
     maxUploadSize: 104857600  # 100MB
     allowedTypes: [".csv", ".xlsx", ".txt"]
-    uploadPath: "/uploads"
+
   upload:
     max_size_mb: 50
     allowed_extensions: ["csv", "xlsx", "xls"]
@@ -393,11 +256,13 @@ constants:
       apostrophe_conversion: true  # Convert ' to '' for PostgreSQL compatibility
       timestamp_format_strict: true  # Enforce YYYY-MM-DD and YYYY-MM-DD hh:mm:ss formats
     naming:
-      timestamp_prefix: "TimeStampReport"
-      cpm_prefix: "CPM_Report"
-      decile_prefix: "Decile_Report"
-      unique_decile_prefix: "Unique_Decile_Report"
-      format: "{prefix}_{client_name}_{week_name}.csv"
+      format: "{type}_{client_name}_{week_name}.csv"
+      types:
+        timestamp: "TimeStampReport"
+        cpm: "CPM_Report"
+        decile: "Decile_Report"
+        unique_decile: "Unique_Decile_Report"
+
   modules:
     1: "trt"
     2: "logs"
@@ -406,6 +271,7 @@ constants:
     5: "report"
     6: "timestamps"
     7: "ip"
+
   api:
     baseUrl: "http://localhost:5000"
     timeout: 30000
@@ -416,19 +282,17 @@ constants:
         - "http://127.0.0.1:3009"
         - "http://localhost:3010"
         - "http://127.0.0.1:3010"
-        - "http://localhost:3011"
-        - "http://127.0.0.1:3011"
-        - "http://localhost:3012"
-        - "http://127.0.0.1:3012"
       allowedHeaders: ["Content-Type", "Accept", "Authorization"]
       allowedMethods: ["GET", "POST", "OPTIONS"]
 
-# ZETA Organization Theme
+# =============================================================================
+# THEME CONFIGURATION
+# =============================================================================
 theme:
   colors:
-    primary: "#334155"        # Professional Slate Gray
-    secondary: "#475569"      # Medium Slate
-    accent: "#0F172A"         # Dark Slate
+    primary: "#334155"
+    secondary: "#475569"
+    accent: "#0F172A"
   gradients:
     client: "from-slate-50 to-gray-100"
     date: "from-amber-50 to-orange-50"
@@ -439,39 +303,20 @@ theme:
     query: "from-rose-50 to-pink-50"
     submit: "from-slate-600 to-gray-700"
   sections:
-    client:
-      title: "Client Information"
-      icon: "check-circle"
-      borderColor: "border-slate-300"
-    date:
-      title: "Campaign Dates"
-      icon: "calendar"
-      borderColor: "border-amber-300"
-    file:
-      title: "File Options"
-      icon: "cog"
-      borderColor: "border-green-300"
-    report:
-      title: "Report Paths"
-      icon: "folder"
-      borderColor: "border-yellow-300"
-    suppression:
-      title: "Suppression List"
-      icon: "shield"
-      borderColor: "border-violet-300"
-    priority:
-      title: "Data Priority Settings"
-      icon: "database"
-      borderColor: "border-blue-300"
-    query:
-      title: "SQL Query"
-      icon: "code"
-      borderColor: "border-rose-300"
+    client: { title: "Client Information", icon: "check-circle", borderColor: "border-slate-300" }
+    date: { title: "Campaign Dates", icon: "calendar", borderColor: "border-amber-300" }
+    file: { title: "File Options", icon: "cog", borderColor: "border-green-300" }
+    report: { title: "Report Paths", icon: "folder", borderColor: "border-yellow-300" }
+    suppression: { title: "Suppression List", icon: "shield", borderColor: "border-violet-300" }
+    priority: { title: "Data Priority Settings", icon: "database", borderColor: "border-blue-300" }
+    query: { title: "SQL Query", icon: "code", borderColor: "border-rose-300" }
 
-# Security Configuration
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
 security:
   rateLimit:
-    windowMs: 900000    # 15 minutes
+    windowMs: 900000
     maxRequests: 100
   cors:
     credentials: true
@@ -479,29 +324,110 @@ security:
     contentSecurityPolicy: false
     hsts: true
 
-# Environment Settings
+# =============================================================================
+# ENVIRONMENT SETTINGS
+# =============================================================================
 environment: "development"
 debug: true
+
 logging:
   level: "DEBUG"
   format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
-# Feature Flags
+# =============================================================================
+# FEATURE FLAGS (Single source of truth)
+# =============================================================================
 features:
   file_upload_enabled: true
   hybrid_input_mode: true
   realtime_validation: true
   dual_sf_upload: false  # Default state for dual upload toggle (false=OFF, true=ON)
-  automation_enabled: true  # Enable/disable request automation scheduler (true=ON, false=OFF)
 
-# Request Automation Configuration
+# =============================================================================
+# REQUEST AUTOMATION (Single source of truth - removed from features)
+# =============================================================================
 automation:
   enabled: false  # Master switch for automation scheduler
-  interval_seconds: 15  # How often to run requestPicker.sh
+  interval_seconds: 60  # How often to run requestPicker.sh
   script_path: "./SCRIPTS/requestPicker.sh"  # Path to requestPicker.sh (relative to project root)
   script_timeout_seconds: 300  # Timeout for script execution (5 minutes)
 
-# Frontend Configuration
+# =============================================================================
+# PROCESSING CONFIGURATION (Python Scripts)
+# =============================================================================
+processing:
+  # Worker pool settings
+  max_workers: 5
+  chunk_size: 2_000_000
+
+  # Retry settings
+  max_retries: 3
+  retry_delay_seconds: 5
+
+  # Audit client IDs (special handling for these clients)
+  audit_client_ids: [180, 181, 182, 183, 184, 185, 187, 188, 189, 190]
+  audit_trt_buffer: 5_000_000
+
+# =============================================================================
+# STAGING CONFIGURATION (Snowflake Data Export)
+# =============================================================================
+staging:
+  enabled: true
+  prefix: "apt_rltp_temp_stage"
+  max_file_size: 500_000_000  # 500MB per file
+  compression: "GZIP"
+
+# =============================================================================
+# INDEX CONFIGURATION (PostgreSQL Index Templates)
+# =============================================================================
+indexes:
+  # Index name patterns (use .format() with request_id and decile)
+  email: "idx_{request_id}_{decile}_email"
+  seg_subseg: "idx_{request_id}_{decile}_seg_subseg"
+  md5: "idx_{request_id}_{decile}_md5"
+
+# =============================================================================
+# SQL QUERY TEMPLATES (Python Scripts)
+# =============================================================================
+queries:
+  # Request details query - returns all columns from both tables (except duplicate b.client_id)
+  # Scripts extract only the columns they need from this comprehensive result
+  # Note: a.* includes added_by (from requests table)
+  request_details: |
+    SELECT a.*,
+           b.client_name,
+           b.prev_week_pb_table,
+           b.total_delivered_table,
+           b.posted_unsub_hards_table,
+           b.posted_bounce_table,
+           b.weeklynewrltpid
+    FROM {requests_table} a
+    JOIN {clients_table} b ON a.client_id = b.client_id
+    WHERE a.request_id = {request_id}
+
+  # Update request status
+  update_status: |
+    UPDATE {requests_table}
+    SET request_status = 'E',
+        request_desc = '{description}',
+        error_code = 1
+    WHERE request_id = {request_id}
+
+  # Update request description
+  update_desc: |
+    UPDATE {requests_table}
+    SET request_desc = '{description}'
+    WHERE request_id = {request_id}
+
+  # Update QA stats
+  update_qa_count: |
+    UPDATE {qa_table}
+    SET RLTP_FILE_COUNT = {count}
+    WHERE request_id = {request_id}
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
 frontend:
   development:
     port: 3009
@@ -510,11 +436,10 @@ frontend:
     outputDir: "dist"
     assetsDir: "assets"
 
-# Backend Configuration
 backend:
   development:
     port: 5000
     host: "0.0.0.0"
   debug: true
   threading: true
-  reloader: false
+  reloader: true
