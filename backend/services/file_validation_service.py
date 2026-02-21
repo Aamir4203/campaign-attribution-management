@@ -112,9 +112,10 @@ class FileValidationService:
             return validation_result
 
         try:
-            # Read CSV with header row (header=0 means first row is header, skip it for validation)
+            # Read CSV without header (header=None means no header row, all rows are data)
+            # Headers are already removed during upload, so first row is data
             content_str = file_content.decode('utf-8')
-            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
+            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
 
             # Validate column count ONLY (no header name validation as per user requirement)
             validation_result['file_info']['rows'] = len(df)  # Data rows (excludes header)
@@ -215,9 +216,10 @@ class FileValidationService:
             return validation_result
 
         try:
-            # Read CSV with header row (header=0 means first row is header, skip it for validation)
+            # Read CSV without header (header=None means no header row, all rows are data)
+            # Headers are already removed during upload, so first row is data
             content_str = file_content.decode('utf-8')
-            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
+            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
 
             # Validate column count ONLY (no header name validation)
             validation_result['file_info']['rows'] = len(df)  # Data rows (excludes header)
@@ -309,15 +311,15 @@ class FileValidationService:
 
             for delimiter in delimiters:
                 try:
-                    df_test = pd.read_csv(io.StringIO(sample_text), sep=delimiter, header=0, nrows=1)
+                    df_test = pd.read_csv(io.StringIO(sample_text), sep=delimiter, header=None, nrows=1)
                     if len(df_test.columns) > max_columns:
                         max_columns = len(df_test.columns)
                         detected_delimiter = delimiter
                 except:
                     continue
 
-            # Read with detected delimiter and header=0 (skip header row)
-            df = pd.read_csv(io.StringIO(content_str), sep=detected_delimiter, header=0)
+            # Read with detected delimiter (no header - headers already removed during upload)
+            df = pd.read_csv(io.StringIO(content_str), sep=detected_delimiter, header=None)
 
             # Validate column count ONLY (no header name validation)
             validation_result['file_info']['rows'] = len(df)  # Data rows
@@ -455,16 +457,16 @@ class FileValidationService:
                         content_str = content.decode('utf-8')
 
                         if file_type == 'cpm':
-                            # Read with header=0 (skip header row)
-                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
+                            # Read without header (headers already removed during upload)
+                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
                             if len(df.columns) == 14:
                                 parsed_files['cpm'] = df
                             else:
                                 cross_validation_result['warnings'].append(f"CPM file has {len(df.columns)} columns, expected 14")
 
                         elif file_type == 'decile' or file_type == 'unique_decile':
-                            # Read with header=0 (skip header row)
-                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=0, thousands=",")
+                            # Read without header (headers already removed during upload)
+                            df = pd.read_csv(io.StringIO(content_str), sep=self.csv_delimiter, header=None, thousands=",")
                             if len(df.columns) == 8:
                                 parsed_files[file_type] = df
                             else:
@@ -481,14 +483,15 @@ class FileValidationService:
 
                             for delimiter in delimiters:
                                 try:
-                                    df_test = pd.read_csv(io.StringIO(sample_text), sep=delimiter, header=0, nrows=1)
+                                    df_test = pd.read_csv(io.StringIO(sample_text), sep=delimiter, header=None, nrows=1)
                                     if len(df_test.columns) > max_columns:
                                         max_columns = len(df_test.columns)
                                         detected_delimiter = delimiter
                                 except:
                                     continue
 
-                            df = pd.read_csv(io.StringIO(content_str), sep=detected_delimiter, header=0)
+                            # Read without header (headers already removed during upload)
+                            df = pd.read_csv(io.StringIO(content_str), sep=detected_delimiter, header=None)
                             parsed_files['timestamp'] = df
 
                     except Exception as e:
@@ -521,6 +524,51 @@ class FileValidationService:
 
                 except Exception as e:
                     cross_validation_result['warnings'].append(f"Could not validate segment matching: {str(e)}")
+
+            # Cross-validation 1.5: CPM and Decile Delivered Sum Comparison
+            if 'cpm' in parsed_files and 'decile' in parsed_files:
+                cross_validation_result['validations_performed'].append('CPM-Decile Delivered Sum Comparison')
+
+                cpm_df = parsed_files['cpm']
+                decile_df = parsed_files['decile']
+
+                try:
+                    # Sum Delivered by (Segment, SubSegment) from CPM
+                    # CPM columns: 12=Segment, 13=SubSegment, 2=Delivered
+                    cpm_df_clean = cpm_df.copy()
+                    cpm_df_clean.iloc[:, 2] = pd.to_numeric(cpm_df_clean.iloc[:, 2].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
+                    cpm_sums = cpm_df_clean.groupby([cpm_df_clean.iloc[:, 12], cpm_df_clean.iloc[:, 13]]).apply(
+                        lambda x: x.iloc[:, 2].sum()
+                    ).reset_index()
+                    cpm_sums.columns = ['segment', 'subseg', 'delivered_cpm']
+
+                    # Sum Delivered by (Segment, SubSegment) from Decile
+                    # Decile columns: 4=Segment, 5=SubSegment, 0=Delivered
+                    decile_df_clean = decile_df.copy()
+                    decile_df_clean.iloc[:, 0] = pd.to_numeric(decile_df_clean.iloc[:, 0].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
+                    decile_sums = decile_df_clean.groupby([decile_df_clean.iloc[:, 4], decile_df_clean.iloc[:, 5]]).apply(
+                        lambda x: x.iloc[:, 0].sum()
+                    ).reset_index()
+                    decile_sums.columns = ['segment', 'subseg', 'delivered_decile']
+
+                    # Merge and compare
+                    comparison = pd.merge(cpm_sums, decile_sums, on=['segment', 'subseg'], how='outer')
+                    comparison['difference'] = comparison['delivered_cpm'].fillna(0) - comparison['delivered_decile'].fillna(0)
+
+                    mismatches = comparison[comparison['difference'] != 0]
+
+                    if len(mismatches) == 0:
+                        logger.info("✅ CPM and Decile Delivered totals match exactly")
+                    else:
+                        cross_validation_result['valid'] = False
+                        mismatch_details = []
+                        for _, row in mismatches.iterrows():
+                            mismatch_details.append(f"{row['segment']}/{row['subseg']}: CPM={int(row['delivered_cpm'])} vs Decile={int(row['delivered_decile'])}")
+                        cross_validation_result['errors'].append(f"CPM - Decile - Delivered Sum Comparison: Failed. Mismatches: {'; '.join(mismatch_details[:3])}")
+                        logger.error(f"❌ CPM and Decile Delivered totals do not match: {mismatch_details}")
+
+                except Exception as e:
+                    cross_validation_result['warnings'].append(f"Could not validate delivered sum comparison: {str(e)}")
 
             # Cross-validation 2: Unique Decile and Decile matching (OPTIONAL - Type 2 only)
             if 'unique_decile' in parsed_files and 'decile' in parsed_files:

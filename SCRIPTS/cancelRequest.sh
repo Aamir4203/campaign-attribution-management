@@ -14,7 +14,7 @@ if [ -z "$REQUEST_ID" ]; then
 fi
 
 # Source database configuration from request-specific ETC directory (standard pattern)
-source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$REQUEST_ID/ETC/config.properties
+source /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/REQUEST_PROCESSING/$REQUEST_ID/ETC/config.properties
 
 # Create request-specific logs directory if it doesn't exist
 mkdir -p "$LOGPATH"

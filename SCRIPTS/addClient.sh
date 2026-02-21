@@ -1,8 +1,8 @@
 #/bin/bash
 
 
-MAIN_PATH="/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB"
-MAIN_SCRIPTS="/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/"
+MAIN_PATH="/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management"
+MAIN_SCRIPTS="/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/"
 CONNECTION_STRING="psql -U datateam -h zds-prod-pgdb01-01.bo3.e-dialog.com -d apt_tool_db"
 alert_to="datateam@aptroid.com"
 

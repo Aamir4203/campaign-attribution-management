@@ -1,0 +1,70 @@
+# Production Configuration Changes Required
+
+Server: zds-prod-pgdb03-01.bo3.e-dialog.com
+IP: 10.100.86.22
+
+## Changes needed in shared/config/app.yaml:
+
+1. CORS Configuration (Lines 280-286)
+   Current:
+     allowedOrigins:
+       - "http://localhost:3009"
+       - "http://127.0.0.1:3009"
+   
+   Update to:
+     allowedOrigins:
+       - "http://zds-prod-pgdb03-01.bo3.e-dialog.com:3009"
+       - "http://10.100.86.22:3009"
+       - "http://localhost:3009"  # Keep for local testing
+
+2. API Base URL (Line 276)
+   Current:
+     baseUrl: "http://localhost:5000"
+   
+   Update to:
+     baseUrl: "http://zds-prod-pgdb03-01.bo3.e-dialog.com:5000"
+
+3. Email Sender (Line 224)
+   Current:
+     sender: "attributionalerts@zds-db3-02.bo3.e-dialog.com"
+   
+   Update to:
+     sender: "attributionalerts@zds-prod-pgdb03-01.bo3.e-dialog.com"
+
+4. Environment (Line 330)
+   Current:
+     environment: "development"
+   
+   Update to:
+     environment: "production"
+
+5. Debug Mode (Line 331)
+   Current:
+     debug: true
+   
+   Update to:
+     debug: false
+
+6. Logging Level (Line 334)
+   Current:
+     level: "DEBUG"
+   
+   Update to:
+     level: "INFO"  # or "WARNING" for production
+
+7. Backend Host (Line 442)
+   Current:
+     host: "0.0.0.0"
+   
+   Keep as is: "0.0.0.0"  # ✅ Correct - listens on all interfaces
+
+8. Automation (Line 350)
+   Current:
+     enabled: false
+   
+   Update to:
+     enabled: true  # ✅ Enable for production
+
+## Notes:
+- Database host (Line 9) remains "zds-prod-pgdb01-01.bo3.e-dialog.com" (different server - correct)
+- Backend reloader (Line 445) should be "false" for production (already set)

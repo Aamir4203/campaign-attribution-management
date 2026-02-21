@@ -23,10 +23,18 @@ interface UploadProgress {
   substep?: string;
   error?: string;
   result?: {
-    table_name: string;
-    rows_uploaded: number;
-    rows_verified: number;
+    table_name?: string;
+    rows_uploaded?: number;
+    rows_verified?: number;
+    files_uploaded?: number;
+    total_rows?: number;
+    tables?: string;
   };
+}
+
+interface DualUploadProgress {
+  production: UploadProgress | null;
+  audit: UploadProgress | null;
 }
 
 const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
@@ -41,12 +49,37 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
   const [selectedCustomColumns, setSelectedCustomColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [dualProgress, setDualProgress] = useState<DualUploadProgress>({ production: null, audit: null });
   const [error, setError] = useState<string | null>(null);
   const [canReupload, setCanReupload] = useState(false);
   const [showReuploadConfirm, setShowReuploadConfirm] = useState(false);
+  const [reuploadType, setReuploadType] = useState<'production' | 'audit' | 'both'>('both');
+
+  // Dual upload feature flag
+  const [dualUploadEnabled, setDualUploadEnabled] = useState(false);
+  const [dualUploadToggle, setDualUploadToggle] = useState(false);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Legacy single progress for backward compatibility
+  const uploadProgress = dualProgress.production;
+
+  // Fetch feature flags on mount
+  useEffect(() => {
+    const fetchFeatures = async () => {
+      try {
+        const response = await fetch('/api/features');
+        const data = await response.json();
+        if (data.success) {
+          setDualUploadEnabled(data.features.dual_sf_upload || false);
+          setDualUploadToggle(data.features.dual_sf_upload || false);
+        }
+      } catch (err) {
+        console.error('Error fetching features:', err);
+      }
+    };
+    fetchFeatures();
+  }, []);
 
   // Fetch columns when modal opens
   useEffect(() => {
@@ -60,10 +93,10 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
     }
   }, [isOpen]);
 
-  // Poll progress when uploading
+  // Poll progress when uploading (dual polling)
   useEffect(() => {
-    if (uploading && uploadProgress?.task_id) {
-      startProgressPolling(uploadProgress.task_id);
+    if (uploading && (dualProgress.production?.task_id || dualProgress.audit?.task_id)) {
+      startDualProgressPolling();
     }
 
     return () => {
@@ -71,7 +104,7 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
         clearInterval(pollIntervalRef.current);
       }
     };
-  }, [uploading, uploadProgress?.task_id]);
+  }, [uploading, dualProgress.production?.task_id, dualProgress.audit?.task_id]);
 
   const fetchColumns = async () => {
     setLoading(true);
@@ -155,13 +188,17 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
     });
   };
 
-  const startUpload = async () => {
+  const startUpload = async (uploadType: 'production' | 'audit' | 'both' = 'both') => {
     setUploading(true);
     setError(null);
     setCanReupload(false);
 
+    // If dual upload toggle is OFF, force production only
+    const effectiveUploadType = !dualUploadToggle ? 'production' : uploadType;
+
     try {
-      const response = await fetch(`/api/snowflake/upload/${requestId}`, {
+      // Use dual upload endpoint
+      const response = await fetch(`/api/snowflake/upload-dual/${requestId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -170,18 +207,29 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
           client_name: clientName,
           week: week,
           header_type: headerType,
-          custom_columns: headerType === 'custom' ? selectedCustomColumns : []
+          custom_columns: headerType === 'custom' ? selectedCustomColumns : [],
+          enable_production: effectiveUploadType === 'production' || effectiveUploadType === 'both',
+          enable_audit: effectiveUploadType === 'audit' || effectiveUploadType === 'both'
         })
       });
 
       const data = await response.json();
 
       if (data.success) {
-        setUploadProgress({
-          task_id: data.task_id,
-          status: 'pending',
-          percentage: 0
-        });
+        // Set dual progress
+        const newProgress: DualUploadProgress = {
+          production: (uploadType === 'production' || uploadType === 'both') && data.production_task_id ? {
+            task_id: data.production_task_id,
+            status: 'pending',
+            percentage: 0
+          } : dualProgress.production,
+          audit: (uploadType === 'audit' || uploadType === 'both') && data.audit_task_id ? {
+            task_id: data.audit_task_id,
+            status: 'pending',
+            percentage: 0
+          } : dualProgress.audit
+        };
+        setDualProgress(newProgress);
       } else {
         setError(data.error || 'Failed to start upload');
         setUploading(false);
@@ -195,7 +243,7 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
     }
   };
 
-  const startProgressPolling = (taskId: string) => {
+  const startDualProgressPolling = () => {
     // Clear any existing interval
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
@@ -204,42 +252,67 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
     // Poll every 2 seconds
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const response = await fetch(`/api/snowflake/progress/${taskId}`);
-        const data = await response.json();
+        const updates: DualUploadProgress = {
+          production: dualProgress.production,
+          audit: dualProgress.audit
+        };
 
-        if (data.success) {
-          setUploadProgress(data.task);
+        // Poll production progress
+        if (dualProgress.production?.task_id) {
+          const prodResponse = await fetch(`/api/snowflake/progress/${dualProgress.production.task_id}`);
+          const prodData = await prodResponse.json();
+          if (prodData.success) {
+            updates.production = prodData.task;
+          }
+        }
 
-          // Stop polling if task is completed or failed
-          if (data.task.status === 'completed' || data.task.status === 'failed') {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-            }
+        // Poll audit progress
+        if (dualProgress.audit?.task_id) {
+          const auditResponse = await fetch(`/api/snowflake/progress/${dualProgress.audit.task_id}`);
+          const auditData = await auditResponse.json();
+          if (auditData.success) {
+            updates.audit = auditData.task;
+          }
+        }
 
-            setUploading(false);
-            setCanReupload(true);
+        setDualProgress(updates);
 
-            if (data.task.status === 'failed') {
-              setError(data.task.error || 'Upload failed');
-            }
+        // Check if both completed or failed
+        const prodDone = !updates.production || ['completed', 'failed'].includes(updates.production.status);
+        const auditDone = !updates.audit || ['completed', 'failed'].includes(updates.audit.status);
+
+        if (prodDone && auditDone) {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+          }
+          setUploading(false);
+          setCanReupload(true);
+
+          // Set error if any failed
+          if (updates.production?.status === 'failed') {
+            setError(`Production: ${updates.production.error || 'Upload failed'}`);
+          }
+          if (updates.audit?.status === 'failed') {
+            setError(prev => prev ? `${prev} | Audit: ${updates.audit?.error || 'Upload failed'}` : `Audit: ${updates.audit?.error || 'Upload failed'}`);
           }
         }
       } catch (err) {
-        console.error('Error polling progress:', err);
+        console.error('Error polling dual progress:', err);
       }
     }, 2000);
   };
 
-  const handleReuploadClick = () => {
+  const handleReuploadClick = (type: 'production' | 'audit' | 'both') => {
+    setReuploadType(type);
     setShowReuploadConfirm(true);
   };
 
   const handleReuploadConfirm = () => {
     setShowReuploadConfirm(false);
-    setUploadProgress(null);
+    setDualProgress({ production: null, audit: null });
     setError(null);
     setCanReupload(false);
-    startUpload();
+    startUpload(reuploadType);
   };
 
   const handleReuploadCancel = () => {
@@ -293,13 +366,34 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
               Upload to Snowflake - #{requestId}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            disabled={uploading}
-          >
-            <MdClose className="h-4 w-4" />
-          </button>
+          <div className="flex items-center space-x-4">
+            {/* Dual Upload Toggle - Always visible */}
+            {!uploading && !dualProgress.production && !dualProgress.audit && (
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-600">Dual Upload</span>
+                <button
+                  onClick={() => setDualUploadToggle(!dualUploadToggle)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    dualUploadToggle ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                  disabled={uploading}
+                >
+                  <span
+                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                      dualUploadToggle ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              disabled={uploading}
+            >
+              <MdClose className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -321,49 +415,106 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
               <span className="ml-3 text-gray-600">Loading table columns...</span>
             </div>
-          ) : uploadProgress ? (
-            /* Upload Progress View */
+          ) : (dualProgress.production || dualProgress.audit) ? (
+            /* Dual Upload Progress View */
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  {/* Show icon only when not completed */}
-                  {uploadProgress.status !== 'completed' && getStatusIcon()}
-                  <div>
-                    <h3 className="text-base font-medium text-gray-900">
-                      {uploadProgress.status === 'completed'
-                        ? 'Upload Completed'
-                        : uploadProgress.status === 'failed'
-                        ? 'Upload Failed'
-                        : 'Uploading...'}
-                    </h3>
-                    {/* Hide substep if completed or if it's "Verifying upload..." */}
-                    {uploadProgress.substep &&
-                     uploadProgress.status !== 'completed' &&
-                     !uploadProgress.substep.toLowerCase().includes('verifying') && (
-                      <p className="text-xs text-gray-600">{uploadProgress.substep}</p>
-                    )}
+              {/* Production Delivery Progress */}
+              {dualProgress.production && (
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-semibold text-gray-700">Production Delivery</h3>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      {dualProgress.production.status !== 'completed' && (
+                        dualProgress.production.status === 'failed' ? <MdError className="w-6 h-6 text-red-600" /> :
+                        dualProgress.production.status === 'running' || dualProgress.production.status === 'pending' ?
+                        <div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /> : null
+                      )}
+                      <div>
+                        <p className="text-sm text-gray-900">
+                          {dualProgress.production.status === 'completed' ? 'Completed' :
+                           dualProgress.production.status === 'failed' ? 'Failed' : 'Uploading...'}
+                        </p>
+                        {dualProgress.production.substep && dualProgress.production.status !== 'completed' && (
+                          <p className="text-xs text-gray-600">{dualProgress.production.substep}</p>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-base font-bold text-gray-900">{dualProgress.production.percentage}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ease-out ${
+                        dualProgress.production.status === 'completed' ? 'bg-green-600' :
+                        dualProgress.production.status === 'failed' ? 'bg-red-600' : 'bg-blue-600'
+                      }`}
+                      style={{ width: `${dualProgress.production.percentage}%` }}
+                    />
+                  </div>
+                  {dualProgress.production.status === 'completed' && dualProgress.production.result && (
+                    <div className="bg-white border border-gray-200 rounded p-3 text-xs text-gray-600">
+                      <p>Table: <strong>{dualProgress.production.result.table_name}</strong></p>
+                      <p>Rows: <strong>{dualProgress.production.result.rows_verified?.toLocaleString()}</strong></p>
+                    </div>
+                  )}
                 </div>
-                <span className="text-xl font-bold text-gray-900">
-                  {uploadProgress.percentage}%
-                </span>
-              </div>
+              )}
 
-              {/* Progress Bar */}
-              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                <div
-                  className={`h-full ${getStatusColor()} transition-all duration-300 ease-out`}
-                  style={{ width: `${uploadProgress.percentage}%` }}
-                />
-              </div>
+              {/* Grey Separator Line */}
+              {dualProgress.production && dualProgress.audit && (
+                <div className="border-t border-gray-300 my-4"></div>
+              )}
 
-              {/* Results */}
-              {uploadProgress.status === 'completed' && uploadProgress.result && (
-                <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-1.5">
-                  <div className="text-sm text-gray-600 space-y-1.5">
-                    <p>Table: <strong className="text-gray-700">{uploadProgress.result.table_name}</strong></p>
-                    <p>Total Count: <strong className="text-gray-700">{uploadProgress.result.rows_verified.toLocaleString()}</strong></p>
+              {/* Audit Delivery Progress */}
+              {dualProgress.audit && (
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <h3 className="text-sm font-semibold text-gray-700">Audit Delivery (LPT Account)</h3>
+                    <div className="relative group">
+                      <MdInfo className="w-4 h-4 text-gray-400 cursor-help" />
+                      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 hidden group-hover:block w-80 p-3 bg-white border border-gray-300 text-gray-700 text-xs rounded-lg shadow-lg z-[9999] pointer-events-none">
+                        <div className="absolute right-full top-1/2 -translate-y-1/2 border-8 border-transparent border-r-white mr-[-1px]"></div>
+                        <div className="font-semibold text-gray-900 mb-1">Fixed Header Format:</div>
+                        <div className="text-gray-600">Md5hash|Subject|Creative|del_date|open_date|click_date|unsub_date|delivered|Segment|D_B_Segment|FILE_NAME</div>
+                      </div>
+                    </div>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      {dualProgress.audit.status !== 'completed' && (
+                        dualProgress.audit.status === 'failed' ? <MdError className="w-6 h-6 text-red-600" /> :
+                        dualProgress.audit.status === 'running' || dualProgress.audit.status === 'pending' ?
+                        <div className="w-6 h-6 border-4 border-purple-600 border-t-transparent rounded-full animate-spin" /> : null
+                      )}
+                      <div>
+                        <p className="text-sm text-gray-900">
+                          {dualProgress.audit.status === 'completed' ? 'Completed' :
+                           dualProgress.audit.status === 'failed' ? 'Failed' : 'Uploading...'}
+                        </p>
+                        {dualProgress.audit.substep && dualProgress.audit.status !== 'completed' && (
+                          <p className="text-xs text-gray-600">{dualProgress.audit.substep}</p>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-base font-bold text-gray-900">{dualProgress.audit.percentage}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ease-out ${
+                        dualProgress.audit.status === 'completed' ? 'bg-green-600' :
+                        dualProgress.audit.status === 'failed' ? 'bg-red-600' : 'bg-purple-600'
+                      }`}
+                      style={{ width: `${dualProgress.audit.percentage}%` }}
+                    />
+                  </div>
+                  {dualProgress.audit.status === 'completed' && dualProgress.audit.result && (
+                    <div className="bg-white border border-gray-200 rounded p-3 text-xs text-gray-600">
+                      <p>Files: <strong>{dualProgress.audit.result.files_uploaded}</strong></p>
+                      <p>Total Rows: <strong>{dualProgress.audit.result.total_rows?.toLocaleString()}</strong></p>
+                      <p>Tables: <strong>{dualProgress.audit.result.tables}</strong></p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -449,29 +600,78 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
         {/* Footer */}
         <div className="flex items-center justify-end space-x-2 p-4 border-t border-gray-200">
           {canReupload && (
-            <button
-              onClick={handleReuploadClick}
-              className="px-3 py-2 text-sm font-medium bg-gray-500 hover:bg-gray-600 text-white rounded transition-colors flex items-center space-x-2"
-              title="Re-upload to Snowflake (existing data will be replaced)"
-            >
-              <MdRefresh className="h-4 w-4" />
-              <span>Re-upload</span>
-            </button>
+            <>
+              {/* Production Re-upload Button - Always show after completion */}
+              {dualProgress.production && (
+                <button
+                  onClick={() => handleReuploadClick('production')}
+                  className={`px-3 py-2 text-sm font-medium rounded transition-colors flex items-center space-x-2 ${
+                    dualProgress.production.status === 'failed'
+                      ? 'bg-red-500 hover:bg-red-600 text-white'
+                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                  }`}
+                  title={
+                    dualProgress.production.status === 'failed'
+                      ? 'Re-upload to Production Snowflake (Failed)'
+                      : 'Re-upload to Production Snowflake'
+                  }
+                >
+                  <MdRefresh className="h-4 w-4" />
+                  <span>Re-upload Production</span>
+                </button>
+              )}
+
+              {/* Audit Re-upload Button */}
+              {dualProgress.audit && (
+                <button
+                  onClick={() => handleReuploadClick('audit')}
+                  className={`px-3 py-2 text-sm font-medium rounded transition-colors flex items-center space-x-2 ${
+                    dualProgress.audit.status === 'failed'
+                      ? 'bg-red-500 hover:bg-red-600 text-white'
+                      : 'bg-purple-500 hover:bg-purple-600 text-white'
+                  }`}
+                  title={
+                    dualProgress.audit.status === 'failed'
+                      ? 'Re-upload to Audit LPT Snowflake (Failed)'
+                      : 'Re-upload to Audit LPT Snowflake'
+                  }
+                >
+                  <MdRefresh className="h-4 w-4" />
+                  <span>Re-upload Audit</span>
+                </button>
+              )}
+
+              {/* Both Re-upload Button - Show when both deliveries exist */}
+              {dualProgress.production && dualProgress.audit && (
+                <button
+                  onClick={() => handleReuploadClick('both')}
+                  className={`px-3 py-2 text-sm font-medium rounded transition-colors flex items-center space-x-2 ${
+                    dualProgress.production.status === 'failed' && dualProgress.audit.status === 'failed'
+                      ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                      : 'bg-gray-500 hover:bg-gray-600 text-white'
+                  }`}
+                  title="Re-upload to Both Snowflake Accounts"
+                >
+                  <MdRefresh className="h-4 w-4" />
+                  <span>Re-upload Both</span>
+                </button>
+              )}
+            </>
           )}
 
-          {!uploadProgress && (
+          {!dualProgress.production && !dualProgress.audit && (
             <button
-              onClick={startUpload}
+              onClick={() => startUpload('both')}
               disabled={uploading || loading || (headerType === 'custom' && selectedCustomColumns.length === 0)}
               className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded flex items-center space-x-2 transition-all duration-200 ${
                 uploading || loading || (headerType === 'custom' && selectedCustomColumns.length === 0)
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700 hover:shadow-md'
               }`}
-              title="Upload data to Snowflake"
+              title={dualUploadToggle ? "Upload data to Both Snowflake Accounts" : "Upload data to Production Snowflake"}
             >
               <MdCloudUpload className="h-5 w-5" />
-              <span>Start Upload</span>
+              <span>{dualUploadToggle ? 'Start Dual Upload' : 'Start Upload'}</span>
             </button>
           )}
         </div>

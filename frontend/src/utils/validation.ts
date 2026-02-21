@@ -69,7 +69,8 @@ export const addRequestSchema = yup.object({
   week: yup
     .string()
     .optional()
-    .min(1, 'Week must not be empty if provided'),
+    .min(1, 'Week must not be empty if provided')
+    .max(6, 'Week name cannot exceed 6 characters'),
 
   // File Settings & Options
   fileType: yup

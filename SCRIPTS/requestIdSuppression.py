@@ -2,11 +2,17 @@ import os
 import sys
 import logging
 import pandas as pd
-from sqlalchemy import create_engine
 import psycopg2
 import subprocess
 
-sys.path.append("/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES")
+# Import configuration loader
+from config_loader import get_config
+
+# Load config
+cfg = get_config()
+
+# Add python modules path from config
+sys.path.append(cfg.python_modules_path)
 from DbConns import *
 
 logging.basicConfig(
@@ -26,8 +32,8 @@ QA_TABLE = sys.argv[4]
 # Track this process
 track_command = f"""
 track_process() {{
-    source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
-    source $TRACKING_HELPER
+    source {cfg.get_config_properties_path(REQUEST_ID)}
+    source {cfg.tracking_helper_path}
     append_process_id $1 "REQUEST_ID_SUPPRESSION"
 }}
 track_process {REQUEST_ID}
@@ -41,20 +47,30 @@ if not os.path.isfile(script_path):
     logger.error(f"delete_partitions.py not found in {SCRIPTPATH}")
     sys.exit(1)
 
-conn, cur = getPgConnection()
+conn = None
+cur = None
 
 try:
+    conn, cur = getPgConnection()
+
+    # Use config for table name
     df = pd.read_sql(
-        f"SELECT * FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND WHERE request_id = %s",
+        f"SELECT * FROM {cfg.requests_table} WHERE request_id = %s",
         params=[REQUEST_ID],
         con=conn,
     )
 except Exception as e:
     logger.error(f"Failed to load request details for request_id={REQUEST_ID}: {e}")
+    if cur:
+        cur.close()
+    if conn:
+        conn.close()
     sys.exit(1)
 
 if df.empty:
     logger.error(f"No record found for request_id={REQUEST_ID}")
+    cur.close()
+    conn.close()
     sys.exit(1)
 
 logger.info("Loaded request details successfully.")
@@ -63,6 +79,8 @@ request_id_supp = df["request_id_supp"].iloc[0]
 
 if not request_id_supp or pd.isna(request_id_supp):
     logger.info("No supplementary request_ids found. Nothing to suppress.")
+    cur.close()
+    conn.close()
     sys.exit(0)
 
 try:
@@ -70,6 +88,8 @@ try:
     supp_ids = [int(x) for x in supp_ids_raw]
 except Exception:
     logger.error(f"Invalid request_id_supp values: {request_id_supp}")
+    cur.close()
+    conn.close()
     sys.exit(1)
 
 logger.info(f"Suppression Request IDs: {supp_ids}")
@@ -77,7 +97,7 @@ logger.info(f"Suppression Request IDs: {supp_ids}")
 supp_client_ids = []
 for req_id in supp_ids:
     cur.execute(
-        "SELECT client_id FROM APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND WHERE request_id = %s",
+        f"SELECT client_id FROM {cfg.requests_table} WHERE request_id = %s",
         (req_id,),
     )
     row = cur.fetchone()
@@ -90,13 +110,15 @@ logger.info(f"Suppression Client IDs: {supp_client_ids}")
 
 if not supp_client_ids:
     logger.info("No valid supplementary client IDs found. Exiting.")
+    cur.close()
+    conn.close()
     sys.exit(0)
 
 total_suppressed = 0
 
 for cli_id in supp_client_ids:
     cur.execute(
-        "SELECT prev_week_pb_table FROM APT_CUSTOM_CLIENT_INFO_TABLE_DND WHERE client_id = %s",
+        f"SELECT prev_week_pb_table FROM {cfg.clients_table} WHERE client_id = %s",
         (cli_id,),
     )
     row = cur.fetchone()
@@ -121,6 +143,7 @@ for cli_id in supp_client_ids:
             f"UPDATE {QA_TABLE} SET REQUEST_ID_SUPP_COUNT = %s WHERE REQUEST_ID = %s"
         )
         cur.execute(update_query, (total_suppressed, REQUEST_ID))
+        conn.commit()
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running delete_partitions.py: {e}")
@@ -130,5 +153,8 @@ for cli_id in supp_client_ids:
 logger.info(f"TOTAL SUPPRESSED COUNT = {total_suppressed}")
 logger.info("Request Suppression Script Completed Successfully.")
 
-cur.close()
-conn.close()
+# Close connection
+if cur:
+    cur.close()
+if conn:
+    conn.close()

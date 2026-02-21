@@ -58,6 +58,7 @@ def get_requests():
             a.request_status,
             a.request_desc,
             COALESCE(a.execution_time, '-') as execution_time,
+            a.request_validation,
             a.sf_upload_status,
             a.sf_table_name,
             a.sf_upload_time
@@ -110,9 +111,10 @@ def get_requests():
                 'request_status': row[5] or 'W',
                 'request_desc': row[6] or 'No description',
                 'execution_time': row[7] or '-',
-                'sf_upload_status': row[8],  # NULL, 'success', 'failed'
-                'sf_table_name': row[9],
-                'sf_upload_time': row[10].isoformat() if row[10] else None
+                'request_validation': row[8],  # Y, N, V, or NULL
+                'sf_upload_status': row[9],  # NULL, 'success', 'failed'
+                'sf_table_name': row[10],
+                'sf_upload_time': row[11].isoformat() if row[11] else None
             })
 
         total_pages = (total_count + limit - 1) // limit

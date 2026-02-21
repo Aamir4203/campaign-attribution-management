@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify
 from datetime import datetime
 import logging
 from db import get_db_connection, release_db_connection
+from config.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,25 @@ def health_check():
         'timestamp': datetime.utcnow().isoformat(),
         'service': 'CAM API'
     })
+
+
+@utility_bp.route('/api/features', methods=['GET'])
+def get_features():
+    """Get feature flags configuration"""
+    try:
+        config = get_config()
+        features = config.get_features()
+
+        return jsonify({
+            'success': True,
+            'features': features
+        })
+    except Exception as e:
+        logger.error(f"Error getting features: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 @utility_bp.route('/api/tables/<table_name>/columns', methods=['GET'])

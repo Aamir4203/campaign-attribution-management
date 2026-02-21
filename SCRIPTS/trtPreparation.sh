@@ -1,6 +1,6 @@
 #/bin/bash
 
-source /u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/REQUEST_PROCESSING/$1/ETC/config.properties
+source /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/REQUEST_PROCESSING/$1/ETC/config.properties
 
 echo "MODULE1 Start Time: `date`"
 

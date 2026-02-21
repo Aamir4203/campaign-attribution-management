@@ -190,17 +190,28 @@ interface Request {
   week: string;
   added_by: string;
   trt_count: number;
-  request_status: string; // W, R, E, C, RE
+  request_status: string; // W, R, E, C, RE, N
   request_desc: string;
   execution_time: string;
+  request_validation?: string | null; // Y, N, V (Yes, No, Validating)
   sf_upload_status?: string | null; // NULL, 'success', 'failed'
   sf_table_name?: string | null;
   sf_upload_time?: string | null;
 }
 
-// Status badge component with clean styling
-const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-  const getStatusDisplay = (status: string) => {
+// Status badge component with clean styling and validation awareness
+const StatusBadge: React.FC<{ status: string; validation?: string | null }> = ({ status, validation }) => {
+  const getStatusDisplay = (status: string, validation?: string | null) => {
+    // If status is 'W' (Waiting) but validation is 'N' (No/Failed), show validation failed
+    if (status === 'W' && validation === 'N') {
+      return { text: 'Validation Failed', className: 'bg-red-100 text-red-800 border-red-300 font-semibold' };
+    }
+
+    // If status is 'W' and validation is 'V' (Validating), show validating status
+    if (status === 'W' && validation === 'V') {
+      return { text: 'Validating', className: 'bg-purple-100 text-purple-800 border-purple-200 animate-pulse' };
+    }
+
     switch (status) {
       case 'W':
         return { text: 'Waiting', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
@@ -219,7 +230,7 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     }
   };
 
-  const { text, className } = getStatusDisplay(status);
+  const { text, className } = getStatusDisplay(status, validation);
 
   return (
     <span className={`px-2 py-1 text-xs font-medium rounded-md border ${className}`}>
@@ -360,8 +371,13 @@ const EditButton: React.FC<{ request: Request }> = ({ request }) => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
 
-  // Only show for Cancelled/Killed (E) or Completed (C) status
-  if (!['E', 'C'].includes(request.request_status)) {
+  // Show for:
+  // - Cancelled/Killed (E) or Completed (C) status
+  // - Validation Failed (W with validation='N')
+  const isValidationFailed = request.request_status === 'W' && request.request_validation === 'N';
+  const canEdit = ['E', 'C'].includes(request.request_status) || isValidationFailed;
+
+  if (!canEdit) {
     return <span></span>;
   }
 
@@ -802,7 +818,7 @@ const RequestLogs: React.FC = () => {
                 </td>
                 <td className="w-20 px-2 py-2 border-b border-gray-100 align-middle overflow-hidden">
                   <div className="text-left">
-                    <StatusBadge status={request.request_status} />
+                    <StatusBadge status={request.request_status} validation={request.request_validation} />
                   </div>
                 </td>
                 <td className="w-40 px-2 py-2 text-sm text-gray-700 border-b border-gray-100 align-middle overflow-hidden">
