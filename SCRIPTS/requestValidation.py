@@ -58,12 +58,9 @@ def send_validation_email(validation_df, client_name, added_by, receiver_email):
     """Send validation failure email notification"""
     try:
         # Get email config from centralized configuration
-        email_config = config.config.get('email', {})
-        smtp_config = email_config.get('smtp', {})
-
-        sender_email = email_config.get('sender', 'attributionalerts@zds-db3-02.bo3.e-dialog.com')
-        smtp_host = smtp_config.get('host', 'localhost')
-        smtp_port = smtp_config.get('port', 25)
+        sender_email = config.alert_sender  # Uses alerts.sender from app.yaml
+        smtp_host = 'localhost'  # SMTP server (local sendmail)
+        smtp_port = 25           # Standard SMTP port
 
         subject = f"APT BACKEND VALIDATION FAILED :: {client_name} :: {added_by}"
 

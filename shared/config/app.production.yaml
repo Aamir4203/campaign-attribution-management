@@ -215,16 +215,26 @@ file_paths:
     config: "REQUEST_PROCESSING/{request_id}/ETC"
 
 # =============================================================================
-# ALERTS CONFIGURATION - PRODUCTION
+# ALERTS CONFIGURATION - PRODUCTION (Single Source of Truth for Email)
 # =============================================================================
 alerts:
-  # Centralized email recipients for all notifications
+  # Centralized email recipients for all notifications (comma-separated)
   # This single source of truth is used by:
   # - Shell scripts (via config.properties ALERT_TO)
   # - Python scripts (via config_loader.py)
   # - Backend services (via config.py)
   email_recipients: "akhan@zetaglobal.com,attributionteam@zetaglobal.com"
-  sender: "attributionalerts@zds-prod-pgdb03-01.bo3.e-dialog.com"  # Production sender
+
+  # Sender address for all email notifications
+  # Format: "Display Name <email@domain.com>" or just "email@domain.com"
+  # Used by:
+  #   - Shell scripts: mail -r "$ALERT_SENDER"
+  #   - Python scripts: msg['From'] = config.alert_sender
+  #   - sendmail scripts: echo "From: $ALERT_SENDER"
+  sender: "CAM Alerts <cam@zetaglobal.com>"
+
+  # Alternative sender format (simple email only):
+  # sender: "cam@zetaglobal.com"
 
 # =============================================================================
 # APPLICATION CONSTANTS

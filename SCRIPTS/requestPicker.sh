@@ -19,7 +19,7 @@ if [[ $? -ne 0 ]]; then
     # Send alert email
     if [ -n "$ALERT_TO" ]; then
         echo -e "Database connection failed at $(date)\n\nPlease check database connectivity." | \
-            mail -s "APT: Database Connection Error" "$ALERT_TO"
+            mail -r "$ALERT_SENDER" -s "APT: Database Connection Error" "$ALERT_TO"
     fi
     exit 1
 fi
@@ -58,7 +58,7 @@ if [[ $running_request_count -lt 11 ]]; then
             # Send alert email
             if [ -n "$ALERT_TO" ]; then
                 echo -e "Request validation script failed for request_id=$new_request_id at $(date)\n\nPlease check validation logs." | \
-                    mail -s "APT: Validation Failed" "$ALERT_TO"
+                    mail -r "$ALERT_SENDER" -s "APT: Validation Failed" "$ALERT_TO"
             fi
         fi
     else
