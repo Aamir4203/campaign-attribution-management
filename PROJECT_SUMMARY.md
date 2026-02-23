@@ -622,7 +622,44 @@ npm run build
 cd ..
 ```
 
-3. **Configure Application**
+3. **Setup Snowflake RSA Keys**
+```bash
+# Create .snowflake directory in backend
+mkdir -p backend/.snowflake
+chmod 700 backend/.snowflake
+
+# Copy your RSA private keys to the directory
+# Production Snowflake Key
+cp /path/to/your/production_key.p8 backend/.snowflake/rsa_key.p8
+
+# Audit (LPT) Snowflake Key
+cp /path/to/your/audit_key.p8 backend/.snowflake/lpt_rsa_key.p8
+
+# Set proper permissions (CRITICAL - must be 600)
+chmod 600 backend/.snowflake/rsa_key.p8
+chmod 600 backend/.snowflake/lpt_rsa_key.p8
+
+# Verify keys are in place
+ls -la backend/.snowflake/
+```
+
+**Important RSA Key Notes:**
+- **Never commit RSA keys to git** - add to .gitignore
+- Keys must have 600 permissions (owner read/write only)
+- Key paths are referenced in `shared/config/app.yaml`:
+  - `snowflake.production.connection.private_key_path`
+  - `snowflake.audit.connection.private_key_path`
+- Passphrases are also in app.yaml (keep secure)
+- Test Snowflake connectivity after deployment:
+  ```bash
+  # Test production connection
+  snowsql -a zeta_hub_reader.us-east-1 -u zx_dataops_service --private-key-path backend/.snowflake/rsa_key.p8
+
+  # Test audit connection
+  snowsql -a zetaglobal.us-east-1 -u green_lp_service --private-key-path backend/.snowflake/lpt_rsa_key.p8
+  ```
+
+4. **Configure Application**
 ```bash
 # Update master configuration
 nano shared/config/app.yaml

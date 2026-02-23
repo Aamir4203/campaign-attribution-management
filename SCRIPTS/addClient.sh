@@ -1,10 +1,12 @@
-#/bin/bash
+#!/bin/bash
 
+# Source centralized configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/config.properties"
 
 MAIN_PATH="/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management"
 MAIN_SCRIPTS="/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/"
-CONNECTION_STRING="psql -U datateam -h zds-prod-pgdb01-01.bo3.e-dialog.com -d apt_tool_db"
-alert_to="datateam@aptroid.com"
+# Use centralized ALERT_TO from config.properties (sourced above)
 
 NEW_CLIENT_NAME=$(echo $1 | tr 'a-z' 'A-Z')
 
@@ -12,7 +14,7 @@ NEW_CLIENT_NAME=$(echo $1 | tr 'a-z' 'A-Z')
 if [[ $# -ne 1 ]]
 then
 		echo "ERROR: Client Name is missing as an Argument"
-        echo -e " Hi Team, \n\n ERROR: Client Name is missing as an Argument. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $alert_to
+        echo -e " Hi Team, \n\n ERROR: Client Name is missing as an Argument. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $ALERT_TO
 
         exit
 
@@ -34,7 +36,7 @@ then
 
 	echo -e " ERROR:: Unable to create total delivered table for New Client $NEW_CLIENT_NAME" 
 	
-	echo -e " Hi Team, \n\n ERROR: Unable to create total delivered table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $alert_to
+	echo -e " Hi Team, \n\n ERROR: Unable to create total delivered table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $ALERT_TO
     exit
 
 fi
@@ -46,7 +48,7 @@ then
 
 	echo -e " ERROR:: Unable to create posted unsub table for New Client $NEW_CLIENT_NAME" 
 	
-    echo -e " Hi Team, \n\n ERROR: Unable to create posted unsub table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $alert_to
+    echo -e " Hi Team, \n\n ERROR: Unable to create posted unsub table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $ALERT_TO
 
     exit
 
@@ -60,7 +62,7 @@ then
 
 	echo -e " ERROR:: Unable to create temporary previous delivered table for New Client $NEW_CLIENT_NAME" 
 	
-    echo -e " Hi Team, \n\n ERROR: Unable to create temporary previous delivered table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $alert_to
+    echo -e " Hi Team, \n\n ERROR: Unable to create temporary previous delivered table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $ALERT_TO
 
     exit
 
@@ -77,7 +79,7 @@ then
 
 	echo -e " ERROR:: Unable to add New Client $NEW_CLIENT_NAME into the client table" 
 	
-    echo -e " Hi Team, \n\n ERROR: Unable to add New Client info to the Main client table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $alert_to
+    echo -e " Hi Team, \n\n ERROR: Unable to add New Client info to the Main client table. \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: APT TOOL" $ALERT_TO
 
     exit
 
@@ -85,7 +87,7 @@ else
 
 new_client_id=`$CONNECTION_STRING -qtAX -c "select client_id from $CLIENT_TABLE where client_name='$NEW_CLIENT_NAME' "`
 
-echo -e " Hi Team, Succesfully client details added to the table. Below are the details. \n\n Client Name: $NEW_CLIENT_NAME \n Client ID :: $new_client_id \n Posted Unsub Table :: $NEW_CLIENT_PB_UNSUB_TABLE \n Total Delivered Table :: $NEW_CLIENT_TOTAL_DEL_TABLE \n Postback Temporary Table :: $NEW_CLIENT_PREV_PB_TABLE \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: $NEW_CLIENT_NAME :: APT TOOL" $alert_to
+echo -e " Hi Team, Succesfully client details added to the table. Below are the details. \n\n Client Name: $NEW_CLIENT_NAME \n Client ID :: $new_client_id \n Posted Unsub Table :: $NEW_CLIENT_PB_UNSUB_TABLE \n Total Delivered Table :: $NEW_CLIENT_TOTAL_DEL_TABLE \n Postback Temporary Table :: $NEW_CLIENT_PREV_PB_TABLE \n\n Thanks,\n DataAttribution" | mail -r "AttributionAlerts@zds-db3-02.bo3.e-dialog.com" -s "New Client Additon :: $NEW_CLIENT_NAME :: APT TOOL" $ALERT_TO
 
 fi
 

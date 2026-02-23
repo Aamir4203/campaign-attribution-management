@@ -74,6 +74,27 @@ class ConfigLoader:
         db_config = self._config.get('database', {})
         return db_config.get('password', '')
 
+    # ==================== Email/Alerts ====================
+
+    @property
+    def alert_recipients(self) -> str:
+        """Get email alert recipients (comma-separated string)."""
+        alerts_config = self._config.get('alerts', {})
+        return alerts_config.get('email_recipients', 'akhan@aptroid.com,attributionteam@aptroid.com')
+
+    @property
+    def alert_sender(self) -> str:
+        """Get email alert sender address."""
+        alerts_config = self._config.get('alerts', {})
+        return alerts_config.get('sender', 'attributionalerts@zds-db3-02.bo3.e-dialog.com')
+
+    def get_alert_config(self) -> Dict[str, str]:
+        """Get complete alerts configuration."""
+        return {
+            'recipients': self.alert_recipients,
+            'sender': self.alert_sender
+        }
+
     # ==================== Tables ====================
 
     def _get_tables_config(self) -> Dict[str, str]:
