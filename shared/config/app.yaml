@@ -217,11 +217,22 @@ file_paths:
     config: "REQUEST_PROCESSING/{request_id}/ETC"
 
 # =============================================================================
-# ALERTS CONFIGURATION
+# ALERTS CONFIGURATION (Single Source of Truth for Email)
 # =============================================================================
 alerts:
+  # Recipients for all email notifications (comma-separated)
   email_recipients: "akhan@zetaglobal.com,attributionteam@zetaglobal.com"
-  sender: "attributionalerts@zds-db3-02.bo3.e-dialog.com"
+
+  # Sender address for all email notifications
+  # Format: "Display Name <email@domain.com>" or just "email@domain.com"
+  # Used by:
+  #   - Shell scripts: mail -r "$ALERT_SENDER"
+  #   - Python scripts: msg['From'] = config.alert_sender
+  #   - sendmail scripts: echo "From: $ALERT_SENDER"
+  sender: "CAM Alerts <cam@zetaglobal.com>"
+
+  # Alternative sender format (simple email only):
+  # sender: "cam@zetaglobal.com"
 
 # =============================================================================
 # APPLICATION CONSTANTS

@@ -22,7 +22,7 @@ END { print "</TABLE></BODY></HTML>" }' $SPOOLPATH/fetchRequestDetails.csv >> $S
 echo  "<BR>Thanks,</\BR> <BR>SysAdmin</\BR>" >> $SPOOLPATH/fetchRequestDetails.html
 
 (
-echo "From: AttributionAlerts@zds-db3-02.bo3.e-dialog.com "
+echo "From: $ALERT_SENDER"
 echo "To: $ALERT_TO "
 echo "MIME-Version: 1.0"
 echo "Subject: APT REQUEST DETAILS :: $CLIENT_NAME :: $USER"
