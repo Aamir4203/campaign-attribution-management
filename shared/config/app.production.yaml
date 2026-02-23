@@ -1,0 +1,434 @@
+# CAM Application Configuration - PRODUCTION TEMPLATE
+# Campaign Attribution Management - Production Server
+# Server: zds-prod-pgdb03-01.bo3.e-dialog.com (10.100.86.22)
+# Version: 2.0 - Production Ready
+
+# =============================================================================
+# DATABASE CONFIGURATION - PRODUCTION
+# =============================================================================
+database:
+  host: "zds-prod-pgdb03-01.bo3.e-dialog.com"  # Production server
+  port: 5432
+  database: "apt_tool_db"
+  username: "datateam"
+  password: "Datat3amSU!"  # Update with production password if different
+  tables:
+    # Static table names
+    clients: "APT_CUSTOM_CLIENT_INFO_TABLE_DND"
+    requests: "APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND"  # Production table (no _TEST suffix)
+    qa_stats: "APT_CUSTOM_POSTBACK_QA_TABLE_DND"
+    tracking: "APT_CUSTOM_REQUEST_PROCESS_TRACKING_DND"
+    hards: "APT_CUSTOM_EOS_INVALIDS_DND"
+    unsubs: "APT_CUSTOM_UNSUB_DETAILS_DND"
+    old_ips: "APT_CUSTOM_VERIZON_IPS_USED_DND"
+    new_ips: "APT_CUSTOM_VERIZON_NEW_IPS_DND"
+    delivered: "apt_custom_partitioned_delivered_data_impala"
+    users: "apt_custom_apt_tool_user_details_dnd"
+
+    # Dynamic table templates (use .format() to substitute values)
+    trt_table: "apt_custom_{request_id}_{client_name}_{week}_trt_table"
+    src_table: "apt_custom_{request_id}_{client_name}_{week}_src_table"
+    postback_table: "apt_custom_{request_id}_{client_name}_{week}_postback_table"
+  pools:
+    min_size: 5
+    max_size: 20
+    timeout: 30000
+
+# =============================================================================
+# EXTERNAL DATABASE CONNECTIONS
+# =============================================================================
+external_databases:
+  snowflake:
+    connection_string: "snowsql -c datateam1"
+  presto:
+    host: "zdl3-mn03.bo3.e-dialog.com"
+    port: 8081
+    connection_string: "presto --server zdl3-mn03.bo3.e-dialog.com:8081 --session query_max_execution_time=3.00h --catalog hive --schema zx_tenant_database --user zx_tenant"
+  impala:
+    host: "10.100.76.250"
+    port: 21001
+    connection_string: "impala-shell -i 10.100.76.250:21001 -u zx_tenant -d zx_tenant --protocol=beeswax -Q EXEC_TIME_LIMIT_S=7200 --quiet"
+  pgdb2:
+    host: "zds-prod-pgdb02-01.bo3.e-dialog.com"
+    database: "arcamax_db"
+    connection_string: "psql -U datateam -h zds-prod-pgdb02-01.bo3.e-dialog.com -d arcamax_db"
+  orange:
+    host: "cmprep-prod-ro-02-vip.bo3.e-dialog.com"
+    database: "mt2_data"
+    username: "cmp_cust_user"
+    password: "Cmp12cst01!!"
+    connection_string: "mysql mt2_data -h cmprep-prod-ro-02-vip.bo3.e-dialog.com -u cmp_cust_user -pCmp12cst01!!"
+
+# =============================================================================
+# SNOWFLAKE UPLOAD CONFIGURATION
+# =============================================================================
+snowflake:
+  # Production Delivery Configuration (Existing)
+  production:
+    enabled: true
+    temp_dir: "/tmp/snowflake_uploads"
+    file_delimiter: "|"
+    compression: "gzip"
+    max_file_size_mb: 500
+    max_concurrent_uploads: 2
+    batch_size: 10000
+    purge_temp_files: true
+    connection:
+      account: "zeta_hub_reader.us-east-1"
+      user: "zx_dataops_service"
+      private_key_path: "backend/.snowflake/rsa_key.p8"
+      private_key_passphrase: "Snowfl@ke12#$"
+      database: "HUBUSERS"
+      schema: "ZX_DATAOPS"
+      warehouse: "ZX_DATAOPS_WH"
+      role: ""
+    table:
+      name_template: "APT_CUSTOM_{client_name}_{week}_{date}"
+      schema_suffix: "_FINAL"
+      sf_final_table: "APT_CUSTOM_{client_name}_{week}_{date}_FINAL"
+      overwrite_on_reupload: true
+    columns:
+      standard_header:
+        - { name: "Md5hash", type: "VARCHAR" }
+        - { name: "Segment", type: "VARCHAR" }
+        - { name: "SubSeg", type: "VARCHAR" }
+        - { name: "Decile", type: "VARCHAR" }
+        - { name: "DeliveredFlag", type: "VARCHAR" }
+        - { name: "DeliveredDate", type: "DATE" }
+        - { name: "Subject", type: "VARCHAR" }
+        - { name: "Creative", type: "VARCHAR" }
+        - { name: "OpenDate", type: "DATE" }
+        - { name: "ClickDate", type: "DATE" }
+        - { name: "UnsubDate", type: "DATE" }
+      excluded_columns: ["priority", "status", "unsub", "freq", "id", "touch", "diff"]
+      date_columns: ["del_date", "open_date", "click_date", "unsub_date", "DeliveredDate", "OpenDate", "ClickDate", "UnsubDate"]
+
+  # Audit Delivery Configuration (LPT Account)
+  audit:
+    enabled: true
+    temp_dir: "/tmp/snowflake_audit_uploads"
+    file_delimiter: "|"
+    compression: "gzip"
+    max_file_size_mb: 10240
+    batch_size: 50000
+    purge_temp_files: true
+    connection:
+      account: "zetaglobal.us-east-1"
+      user: "green_lp_service"
+      private_key_path: "backend/.snowflake/lpt_rsa_key.p8"
+      private_key_passphrase: "Jsw44QTLRYYGLGBgfhXQR7webwaxArWx"
+      database: "GREEN"
+      schema: "INFS_LPT"
+      warehouse: "GREENT_LPT2"
+      role: "GREEN_ADMIN_ROLE"
+    table:
+      name_template: "CUSTOM_ZX_STATS_MASTER_{year}_{month}"
+      cluster_by: "line_item_id, delivereddate, offerid, segment, delivered"
+      validate_existing_data: true
+      remove_old_data: true
+    columns:
+      fixed_header:
+        - { name: "Md5hash", source_column: "md5hash", type: "VARCHAR(16777216)" }
+        - { name: "Subject", source_column: "subject", type: "VARCHAR(16777216)" }
+        - { name: "Creative", source_column: "creative", type: "VARCHAR(16777216)" }
+        - { name: "del_date", source_column: "del_date", alias: "delivereddate", type: "DATE" }
+        - { name: "open_date", source_column: "open_date", type: "DATE" }
+        - { name: "click_date", source_column: "click_date", type: "DATE" }
+        - { name: "unsub_date", source_column: "unsub_date", type: "DATE" }
+        - { name: "delivered", source_column: "flag", transform: "CASE WHEN flag IS NOT NULL THEN 'Y' ELSE flag END", type: "VARCHAR(16777216)" }
+        - { name: "Segment", source_column: "segment", type: "VARCHAR(16777216)" }
+        - { name: "D_B_Segment", source_column: "client_name", is_parameter: true, type: "VARCHAR(16777216)" }
+        - { name: "FILE_NAME", source_column: "source_table", is_parameter: true, type: "VARCHAR(16777216)" }
+      table_schema:
+        - { name: "MD5HASH", type: "VARCHAR(16777216)" }
+        - { name: "DELIVEREDDATE", type: "DATE" }
+        - { name: "OPEN_DATE", type: "DATE" }
+        - { name: "CLICK_DATE", type: "DATE" }
+        - { name: "UNSUB_DATE", type: "DATE" }
+        - { name: "CREATIVE", type: "VARCHAR(16777216)" }
+        - { name: "SUBJECT", type: "VARCHAR(16777216)" }
+        - { name: "TABLE_NAME", type: "VARCHAR(16777216)" }
+        - { name: "FILE_NAME", type: "VARCHAR(16777216)" }
+        - { name: "ID", type: "NUMBER(38,0)", autoincrement: true }
+        - { name: "LISTID", type: "VARCHAR(16777216)" }
+        - { name: "PROFILEID", type: "VARCHAR(16777216)" }
+        - { name: "EMAIL", type: "VARCHAR(16777216)" }
+        - { name: "DEL_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "OPEN_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "CLICK_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "BROWSER", type: "VARCHAR(16777216)" }
+        - { name: "OFFERID", type: "VARCHAR(16777216)" }
+        - { name: "DOMAIN", type: "VARCHAR(16777216)" }
+        - { name: "MAILING_IP", type: "VARCHAR(16777216)" }
+        - { name: "MSGID", type: "VARCHAR(16777216)" }
+        - { name: "SUBID", type: "VARCHAR(16777216)" }
+        - { name: "IPADDR", type: "VARCHAR(16777216)" }
+        - { name: "CREATIVEID", type: "VARCHAR(16777216)" }
+        - { name: "IO_ID", type: "NUMBER(38,0)" }
+        - { name: "LINE_ITEM_ID", type: "NUMBER(38,0)" }
+        - { name: "RC_IP", type: "VARCHAR(16777216)" }
+        - { name: "PMTA_IP", type: "VARCHAR(16777216)" }
+        - { name: "PMTA_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "OPEN_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "UNSUB_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "CLICK_FILENAME", type: "VARCHAR(16777216)" }
+        - { name: "UNSUB_TS", type: "TIMESTAMP_NTZ(9)" }
+        - { name: "DELIVERED", type: "VARCHAR(16777216)" }
+        - { name: "SEGMENT", type: "VARCHAR(16777216)" }
+        - { name: "D_B_SEGMENT", type: "VARCHAR(16777216)" }
+        - { name: "ADVERTISER_NAME", type: "VARCHAR(16777216)" }
+        - { name: "BOUNCECAT", type: "VARCHAR(16777216)" }
+        - { name: "DSNSTATUS", type: "VARCHAR(16777216)" }
+        - { name: "DSNDIAG", type: "VARCHAR(16777216)" }
+        - { name: "TYPE", type: "VARCHAR(16777216)" }
+    date_analysis:
+      source_column: "del_date"
+      month_names: { 1: "JANUARY", 2: "FEBRUARY", 3: "MARCH", 4: "APRIL", 5: "MAY", 6: "JUNE", 7: "JULY", 8: "AUGUST", 9: "SEPTEMBER", 10: "OCTOBER", 11: "NOVEMBER", 12: "DECEMBER" }
+      max_years: 2
+    file_naming:
+      format: "AUDIT_{client_name}_{year}_{month}_{timestamp}.csv"
+      timestamp_format: "%Y%m%d_%H%M%S"
+
+# =============================================================================
+# FILE SYSTEM PATHS - PRODUCTION
+# =============================================================================
+file_paths:
+  # Base path - PRODUCTION
+  base: "/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management"
+
+  # Relative paths (use with base)
+  scripts: "SCRIPTS"
+  request_processing: "REQUEST_PROCESSING"
+  tracking_helper: "SCRIPTS/trackingHelper.sh"
+
+  # External paths (absolute)
+  python_modules: "/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES"
+
+  # Request-specific paths (use {request_id} placeholder)
+  request:
+    root: "REQUEST_PROCESSING/{request_id}"
+    files: "REQUEST_PROCESSING/{request_id}/FILES"
+    spool: "REQUEST_PROCESSING/{request_id}/SPOOL"
+    scripts: "REQUEST_PROCESSING/{request_id}/SCRIPTS"
+    logs: "REQUEST_PROCESSING/{request_id}/LOGS"
+    backup: "REQUEST_PROCESSING/{request_id}/PURGED_DATA"
+    config: "REQUEST_PROCESSING/{request_id}/ETC"
+
+# =============================================================================
+# ALERTS CONFIGURATION - PRODUCTION
+# =============================================================================
+alerts:
+  # Centralized email recipients for all notifications
+  # This single source of truth is used by:
+  # - Shell scripts (via config.properties ALERT_TO)
+  # - Python scripts (via config_loader.py)
+  # - Backend services (via config.py)
+  email_recipients: "akhan@zetaglobal.com,attributionteam@zetaglobal.com"
+  sender: "attributionalerts@zds-prod-pgdb03-01.bo3.e-dialog.com"  # Production sender
+
+# =============================================================================
+# APPLICATION CONSTANTS
+# =============================================================================
+constants:
+  pagination:
+    defaultPageSize: 50
+    maxPageSize: 500
+
+  requests:
+    maxRetries: 3
+    timeoutMs: 300000
+    validStatuses: ["V", "C", "E", "RW", "RE"]
+    defaultOldDeliveredPercentage: 65
+    columns:
+      requestIdSuppression: "request_id_supp"
+      priorityFile: "priority_file"
+      priorityFilePercentage: "priority_file_per"
+      timeStampPath: "timestamp_report_path"
+
+  files:
+    maxUploadSize: 104857600  # 100MB
+    allowedTypes: [".csv", ".xlsx", ".txt"]
+
+  upload:
+    max_size_mb: 50
+    allowed_extensions: ["csv", "xlsx", "xls"]
+    base_path: "REPORT_FILES"
+    validation:
+      immediate: true
+      csv_delimiter: "|"
+      apostrophe_conversion: true
+      timestamp_format_strict: true
+    naming:
+      format: "{type}_{client_name}_{week_name}.csv"
+      types:
+        timestamp: "TimeStampReport"
+        cpm: "CPM_Report"
+        decile: "Decile_Report"
+        unique_decile: "Unique_Decile_Report"
+
+  modules:
+    1: "trt"
+    2: "logs"
+    3: "suppression"
+    4: "source"
+    5: "report"
+    6: "timestamps"
+    7: "ip"
+
+  api:
+    baseUrl: "http://10.100.86.22:5000"  # Production server IP
+    timeout: 30000
+    retries: 3
+    cors:
+      allowedOrigins:
+        - "http://10.100.86.22:3009"
+        - "http://zds-prod-pgdb03-01.bo3.e-dialog.com:3009"
+      allowedHeaders: ["Content-Type", "Accept", "Authorization"]
+      allowedMethods: ["GET", "POST", "OPTIONS"]
+
+# =============================================================================
+# THEME CONFIGURATION
+# =============================================================================
+theme:
+  colors:
+    primary: "#334155"
+    secondary: "#475569"
+    accent: "#0F172A"
+  gradients:
+    client: "from-slate-50 to-gray-100"
+    date: "from-amber-50 to-orange-50"
+    file: "from-green-50 to-emerald-50"
+    report: "from-yellow-50 to-amber-50"
+    suppression: "from-violet-50 to-purple-50"
+    priority: "from-blue-50 to-cyan-50"
+    query: "from-rose-50 to-pink-50"
+    submit: "from-slate-600 to-gray-700"
+  sections:
+    client: { title: "Client Information", icon: "check-circle", borderColor: "border-slate-300" }
+    date: { title: "Campaign Dates", icon: "calendar", borderColor: "border-amber-300" }
+    file: { title: "File Options", icon: "cog", borderColor: "border-green-300" }
+    report: { title: "Report Paths", icon: "folder", borderColor: "border-yellow-300" }
+    suppression: { title: "Suppression List", icon: "shield", borderColor: "border-violet-300" }
+    priority: { title: "Data Priority Settings", icon: "database", borderColor: "border-blue-300" }
+    query: { title: "SQL Query", icon: "code", borderColor: "border-rose-300" }
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+security:
+  rateLimit:
+    windowMs: 900000
+    maxRequests: 100
+  cors:
+    credentials: true
+  headers:
+    contentSecurityPolicy: false
+    hsts: true
+
+# =============================================================================
+# ENVIRONMENT SETTINGS - PRODUCTION
+# =============================================================================
+environment: "production"
+debug: false  # MUST be false in production
+
+logging:
+  level: "INFO"  # Production logging level
+  format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+# =============================================================================
+# FEATURE FLAGS
+# =============================================================================
+features:
+  file_upload_enabled: true
+  hybrid_input_mode: true
+  realtime_validation: true
+  dual_sf_upload: false  # Default state for dual upload toggle
+
+# =============================================================================
+# REQUEST AUTOMATION - PRODUCTION
+# =============================================================================
+automation:
+  enabled: true  # Enable for production
+  interval_seconds: 60
+  script_path: "./SCRIPTS/requestPicker.sh"
+  script_timeout_seconds: 300
+
+# =============================================================================
+# PROCESSING CONFIGURATION
+# =============================================================================
+processing:
+  max_workers: 5
+  chunk_size: 2_000_000
+  max_retries: 3
+  retry_delay_seconds: 5
+  audit_client_ids: [180, 181, 182, 183, 184, 185, 187, 188, 189, 190]
+  audit_trt_buffer: 5_000_000
+
+# =============================================================================
+# STAGING CONFIGURATION
+# =============================================================================
+staging:
+  enabled: true
+  prefix: "apt_rltp_temp_stage"
+  max_file_size: 500_000_000
+  compression: "GZIP"
+
+# =============================================================================
+# INDEX CONFIGURATION
+# =============================================================================
+indexes:
+  email: "idx_{request_id}_{decile}_email"
+  seg_subseg: "idx_{request_id}_{decile}_seg_subseg"
+  md5: "idx_{request_id}_{decile}_md5"
+
+# =============================================================================
+# SQL QUERY TEMPLATES
+# =============================================================================
+queries:
+  request_details: |
+    SELECT a.*,
+           b.client_name,
+           b.prev_week_pb_table,
+           b.total_delivered_table,
+           b.posted_unsub_hards_table,
+           b.posted_bounce_table,
+           b.weeklynewrltpid
+    FROM {requests_table} a
+    JOIN {clients_table} b ON a.client_id = b.client_id
+    WHERE a.request_id = {request_id}
+
+  update_status: |
+    UPDATE {requests_table}
+    SET request_status = 'E',
+        request_desc = '{description}',
+        error_code = 1
+    WHERE request_id = {request_id}
+
+  update_desc: |
+    UPDATE {requests_table}
+    SET request_desc = '{description}'
+    WHERE request_id = {request_id}
+
+  update_qa_count: |
+    UPDATE {qa_table}
+    SET RLTP_FILE_COUNT = {count}
+    WHERE request_id = {request_id}
+
+# =============================================================================
+# SERVER CONFIGURATION - PRODUCTION
+# =============================================================================
+frontend:
+  production:
+    port: 3009
+    host: "0.0.0.0"
+  build:
+    outputDir: "dist"
+    assetsDir: "assets"
+
+backend:
+  production:
+    port: 5000
+    host: "0.0.0.0"
+  debug: false  # Production mode
+  threading: true
+  reloader: false  # No auto-reload in production

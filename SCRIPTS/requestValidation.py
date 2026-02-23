@@ -503,9 +503,8 @@ def main():
     request_table = config.get_table('requests')
     client_table = config.get_table('clients')
 
-    # Get email config
-    email_config = config.config.get('email', {})
-    receiver_email = email_config.get('alert_to', 'vmarni@zetaglobal.com,datateam@aptroid.com')
+    # Get email config from centralized alerts configuration
+    receiver_email = config.alert_recipients
 
     try:
         # Connect to database

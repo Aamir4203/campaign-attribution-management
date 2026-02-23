@@ -1,17 +1,15 @@
-#/bin/bash
+#!/bin/bash
 
-CONNECTION_STRING="psql -U datateam -h zds-prod-pgdb01-01.bo3.e-dialog.com -d apt_tool_db"
+# Source centralized configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/config.properties"
+
 MAIN_PATH=/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management
 HOMEPATH=$MAIN_PATH
 SPOOLPATH=$HOMEPATH/PURGED_DATA
 BKP_PATH=$HOMEPATH/PURGED_DATA
 
-REQUEST_TABLE="APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND"
-CLIENT_TABLE="APT_CUSTOM_CLIENT_INFO_TABLE_DND"
-OLD_IP_TABLE="APT_CUSTOM_VERIZON_IPS_USED_DND"
-NEW_IP_TABLE="APT_CUSTOM_VERIZON_NEW_IPS_DND"
-
-alert_to="akhan@aptroid.com"
+# Tables and ALERT_TO now sourced from config.properties above
 
 echo "START TIME :: `date`"
 #------------------ REQUEST_ID'S PULLING -------------#
