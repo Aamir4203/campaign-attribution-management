@@ -1,5 +1,4 @@
 import psycopg2
-from pyhive import presto
 
 
 def apt_tool_Db():
@@ -12,20 +11,6 @@ def apt_tool_Db():
     pg1con.autocommit = True
     p2cur = pg1con.cursor()
     return p2cur
-
-
-def presto1():
-    presto_config = {
-        "host": "zdl3-mn03.bo3.e-dialog.com",
-        "port": 8081,
-        "username": "zx_tenant",
-        "catalog": "hive",
-        "schema": "zx_tenant_database",
-    }
-    pconn = presto.connect(**presto_config)
-    pcur = pconn.cursor()
-
-    return pcur
 
 
 def attribution_db():

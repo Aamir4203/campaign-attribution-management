@@ -37,6 +37,8 @@ error_fun()
         kill -9 $resp_script_pid
 
         sh $SCRIPTPATH/sendMail.sh "$REQUEST_ID"
+        sh $SCRIPTPATH/cancelRequest.sh "$REQUEST_ID"
+        exit
 
 }
 
@@ -97,7 +99,7 @@ resp_script_pid=$!
 
 echo "Presto Start time:`date`"
 
-/usr/bin/python3 $SCRIPTPATH/rltpDataPulling.py "$REQUEST_ID"
+"$MAIN_PATH/CAM_Env/bin/python3" $SCRIPTPATH/rltpDataPulling.py "$REQUEST_ID"
 
 if [[ $? -ne 0 ]]
 then

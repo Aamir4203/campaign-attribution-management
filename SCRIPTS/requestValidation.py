@@ -28,14 +28,14 @@ import warnings
 sys.path.insert(0, os.path.dirname(__file__))
 from config_loader import get_config
 
-# Add Python modules path
-sys.path.append("/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES")
-from DbConns import getSnowflake
-
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Load configuration
 config = get_config()
+
+# Add Python modules path from config
+sys.path.append(config.python_modules_path)
+from DbConns import getSnowflake
 
 # Validation tracking
 validation_results = []
@@ -478,19 +478,17 @@ def main():
     print(f"Backend Request Validation - Request ID: {request_id}")
     print(f"{'='*60}")
 
-    # Get database configuration from centralized config
-    db_config = config.config.get('database', {})
-    postgres_cfg = db_config.get('postgres', {})
-
+    # Get database configuration via ConfigLoader (handles key name differences)
     pg_config = {
-        "host": postgres_cfg.get('host'),
-        "port": postgres_cfg.get('port', 5432),
-        "dbname": postgres_cfg.get('database'),
-        "user": postgres_cfg.get('user')
+        "host": config.db_host,
+        "port": config.db_port,
+        "dbname": config.db_name,
+        "user": config.db_user,
+        "password": config.db_password
     }
 
     # Build connection string
-    connection_string = f"postgresql+psycopg2://{pg_config['user']}:@{pg_config['host']}/{pg_config['dbname']}"
+    connection_string = f"postgresql+psycopg2://{pg_config['user']}:{pg_config['password']}@{pg_config['host']}:{pg_config['port']}/{pg_config['dbname']}"
     engine = create_engine(connection_string)
 
     conn = None

@@ -85,6 +85,7 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       fetchColumns();
+      restorePreviousUploadState();
     } else {
       // Clean up when modal closes
       if (pollIntervalRef.current) {
@@ -92,6 +93,42 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
       }
     }
   }, [isOpen]);
+
+  const restorePreviousUploadState = async () => {
+    try {
+      const response = await fetch(`/api/snowflake/upload-status/${requestId}`);
+      const data = await response.json();
+
+      if (!data.success || !data.upload_status) return;
+
+      const { status, table_name, audit_status } = data.upload_status;
+
+      // Only restore if at least one upload has been attempted
+      if (!status && !audit_status) return;
+
+      const restoredProgress: DualUploadProgress = {
+        production: status ? {
+          task_id: `restored_prod_${requestId}`,
+          status: status === 'success' ? 'completed' : 'failed',
+          percentage: 100,
+          result: status === 'success' ? { table_name: table_name || undefined } : undefined,
+          error: status === 'failed' ? 'Previous upload failed' : undefined
+        } : null,
+        audit: audit_status ? {
+          task_id: `restored_audit_${requestId}`,
+          status: audit_status === 'success' ? 'completed' : 'failed',
+          percentage: 100,
+          result: audit_status === 'success' ? { tables: 'Previously uploaded to LPT' } : undefined,
+          error: audit_status === 'failed' ? 'Previous audit upload failed' : undefined
+        } : null
+      };
+
+      setDualProgress(restoredProgress);
+      setCanReupload(true);
+    } catch (err) {
+      console.error('Error restoring upload state:', err);
+    }
+  };
 
   // Poll progress when uploading (dual polling)
   useEffect(() => {
@@ -188,13 +225,14 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
     });
   };
 
-  const startUpload = async (uploadType: 'production' | 'audit' | 'both' = 'both') => {
+  const startUpload = async (uploadType: 'production' | 'audit' | 'both' = 'both', isReupload: boolean = false) => {
     setUploading(true);
     setError(null);
     setCanReupload(false);
 
-    // If dual upload toggle is OFF, force production only
-    const effectiveUploadType = !dualUploadToggle ? 'production' : uploadType;
+    // If dual upload toggle is OFF, force production only — but only for initial uploads from the form.
+    // Re-upload actions must always respect the explicitly specified type.
+    const effectiveUploadType = (!dualUploadToggle && !isReupload) ? 'production' : uploadType;
 
     try {
       // Use dual upload endpoint
@@ -257,8 +295,8 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
           audit: dualProgress.audit
         };
 
-        // Poll production progress
-        if (dualProgress.production?.task_id) {
+        // Poll production progress (skip restored placeholder IDs — they don't exist on the backend)
+        if (dualProgress.production?.task_id && !dualProgress.production.task_id.startsWith('restored_')) {
           const prodResponse = await fetch(`/api/snowflake/progress/${dualProgress.production.task_id}`);
           const prodData = await prodResponse.json();
           if (prodData.success) {
@@ -266,8 +304,8 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
           }
         }
 
-        // Poll audit progress
-        if (dualProgress.audit?.task_id) {
+        // Poll audit progress (skip restored placeholder IDs)
+        if (dualProgress.audit?.task_id && !dualProgress.audit.task_id.startsWith('restored_')) {
           const auditResponse = await fetch(`/api/snowflake/progress/${dualProgress.audit.task_id}`);
           const auditData = await auditResponse.json();
           if (auditData.success) {
@@ -312,7 +350,7 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
     setDualProgress({ production: null, audit: null });
     setError(null);
     setCanReupload(false);
-    startUpload(reuploadType);
+    startUpload(reuploadType, true);
   };
 
   const handleReuploadCancel = () => {
@@ -324,13 +362,13 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
 
     switch (uploadProgress.status) {
       case 'completed':
-        return <MdCheck className="w-6 h-6 text-green-600" />;
+        return <MdCheck className="w-5 h-5 text-green-600" />;
       case 'failed':
-        return <MdError className="w-6 h-6 text-red-600" />;
+        return <MdError className="w-5 h-5 text-red-500" />;
       case 'running':
       case 'pending':
         return (
-          <div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
         );
       default:
         return null;
@@ -342,12 +380,12 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
 
     switch (uploadProgress.status) {
       case 'completed':
-        return 'bg-green-600';
+        return 'bg-green-500';
       case 'failed':
-        return 'bg-red-600';
+        return 'bg-red-500';
       case 'running':
       case 'pending':
-        return 'bg-blue-600';
+        return 'bg-blue-500';
       default:
         return 'bg-gray-200';
     }
@@ -357,30 +395,31 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded shadow-xl w-full max-w-2xl flex flex-col relative">
+      <div className="bg-white rounded shadow-xl w-full max-w-[538px] flex flex-col relative">
+
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <div className="flex items-center space-x-2">
-            <FaRegSnowflake className="h-5 w-5 text-blue-600" />
-            <h2 className="text-base font-medium text-gray-900">
-              Upload to Snowflake - #{requestId}
+            <FaRegSnowflake className="h-4 w-4 text-slate-600" />
+            <h2 className="text-sm font-semibold text-gray-800">
+              Upload to Snowflake — #{requestId}
             </h2>
           </div>
-          <div className="flex items-center space-x-4">
-            {/* Dual Upload Toggle - Always visible */}
+          <div className="flex items-center space-x-3">
+            {/* Dual Upload Toggle */}
             {!uploading && !dualProgress.production && !dualProgress.audit && (
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-gray-600">Dual Upload</span>
+                <span className="text-xs text-gray-500">Dual Upload</span>
                 <button
                   onClick={() => setDualUploadToggle(!dualUploadToggle)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    dualUploadToggle ? 'bg-blue-600' : 'bg-gray-300'
+                  className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none ${
+                    dualUploadToggle ? 'bg-slate-600' : 'bg-gray-300'
                   }`}
                   disabled={uploading}
                 >
                   <span
-                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                      dualUploadToggle ? 'translate-x-5' : 'translate-x-1'
+                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform shadow ${
+                      dualUploadToggle ? 'translate-x-4' : 'translate-x-0.5'
                     }`}
                   />
                 </button>
@@ -397,167 +436,157 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-4">
-          <div className="space-y-4">
+        <div className="px-4 py-3">
+          <div className="space-y-3">
+
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded p-3">
-              <div className="flex">
-                <div className="ml-2">
-                  <h3 className="text-sm font-medium text-red-800">Error</h3>
-                  <p className="mt-1 text-sm text-red-700">{error}</p>
-                </div>
-              </div>
+            <div className="bg-red-50 border border-red-200 rounded p-2 flex items-start space-x-2">
+              <MdError className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-red-700">{error}</p>
             </div>
           )}
 
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-              <span className="ml-3 text-gray-600">Loading table columns...</span>
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-slate-600"></div>
+              <span className="ml-3 text-sm text-gray-500">Loading table columns...</span>
             </div>
           ) : (dualProgress.production || dualProgress.audit) ? (
-            /* Dual Upload Progress View */
-            <div className="space-y-4">
-              {/* Production Delivery Progress */}
+
+            /* Progress View */
+            <div className="space-y-3">
+
+              {/* Production Delivery */}
               {dualProgress.production && (
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <h3 className="text-sm font-semibold text-gray-700">Production Delivery</h3>
-                  </div>
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      {dualProgress.production.status !== 'completed' && (
-                        dualProgress.production.status === 'failed' ? <MdError className="w-6 h-6 text-red-600" /> :
-                        dualProgress.production.status === 'running' || dualProgress.production.status === 'pending' ?
-                        <div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /> : null
-                      )}
-                      <div>
-                        <p className="text-sm text-gray-900">
-                          {dualProgress.production.status === 'completed' ? 'Completed' :
-                           dualProgress.production.status === 'failed' ? 'Failed' : 'Uploading...'}
-                        </p>
-                        {dualProgress.production.substep && dualProgress.production.status !== 'completed' && (
-                          <p className="text-xs text-gray-600">{dualProgress.production.substep}</p>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-base font-bold text-gray-900">{dualProgress.production.percentage}%</span>
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Production</span>
+                    <span className="text-xs font-bold text-gray-700">{dualProgress.production.percentage}%</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                  <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
                     <div
-                      className={`h-full transition-all duration-300 ease-out ${
-                        dualProgress.production.status === 'completed' ? 'bg-green-600' :
-                        dualProgress.production.status === 'failed' ? 'bg-red-600' : 'bg-blue-600'
+                      className={`h-full transition-all duration-300 ease-out rounded-full ${
+                        dualProgress.production.status === 'completed' ? 'bg-emerald-500' :
+                        dualProgress.production.status === 'failed'    ? 'bg-red-500'     : 'bg-slate-500'
                       }`}
                       style={{ width: `${dualProgress.production.percentage}%` }}
                     />
                   </div>
+                  <div className="flex items-center space-x-2">
+                    {dualProgress.production.status === 'completed' && <MdCheck className="w-4 h-4 text-emerald-500" />}
+                    {dualProgress.production.status === 'failed'    && <MdError className="w-4 h-4 text-red-500" />}
+                    {(dualProgress.production.status === 'running' || dualProgress.production.status === 'pending') &&
+                      <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />}
+                    <p className="text-xs text-gray-600">
+                      {dualProgress.production.status === 'completed' ? 'Completed' :
+                       dualProgress.production.status === 'failed'    ? 'Failed'    : 'Uploading...'}
+                      {dualProgress.production.substep && dualProgress.production.status !== 'completed' &&
+                        <span className="text-gray-400 ml-1">— {dualProgress.production.substep}</span>}
+                    </p>
+                  </div>
                   {dualProgress.production.status === 'completed' && dualProgress.production.result && (
-                    <div className="bg-white border border-gray-200 rounded p-3 text-xs text-gray-600">
-                      <p>Table: <strong>{dualProgress.production.result.table_name}</strong></p>
-                      <p>Rows: <strong>{dualProgress.production.result.rows_verified?.toLocaleString()}</strong></p>
+                    <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-xs text-gray-500 flex gap-4">
+                      <span>Table: <strong className="text-gray-700">{dualProgress.production.result.table_name}</strong></span>
+                      {dualProgress.production.result.rows_verified &&
+                        <span>Rows: <strong className="text-gray-700">{dualProgress.production.result.rows_verified.toLocaleString()}</strong></span>}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Grey Separator Line */}
+              {/* Separator */}
               {dualProgress.production && dualProgress.audit && (
-                <div className="border-t border-gray-300 my-4"></div>
+                <div className="border-t border-gray-200" />
               )}
 
-              {/* Audit Delivery Progress */}
+              {/* Audit Delivery */}
               {dualProgress.audit && (
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <h3 className="text-sm font-semibold text-gray-700">Audit Delivery (LPT Account)</h3>
-                    <div className="relative group">
-                      <MdInfo className="w-4 h-4 text-gray-400 cursor-help" />
-                      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 hidden group-hover:block w-80 p-3 bg-white border border-gray-300 text-gray-700 text-xs rounded-lg shadow-lg z-[9999] pointer-events-none">
-                        <div className="absolute right-full top-1/2 -translate-y-1/2 border-8 border-transparent border-r-white mr-[-1px]"></div>
-                        <div className="font-semibold text-gray-900 mb-1">Fixed Header Format:</div>
-                        <div className="text-gray-600">Md5hash|Subject|Creative|del_date|open_date|click_date|unsub_date|delivered|Segment|D_B_Segment|FILE_NAME</div>
-                      </div>
-                    </div>
-                  </div>
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      {dualProgress.audit.status !== 'completed' && (
-                        dualProgress.audit.status === 'failed' ? <MdError className="w-6 h-6 text-red-600" /> :
-                        dualProgress.audit.status === 'running' || dualProgress.audit.status === 'pending' ?
-                        <div className="w-6 h-6 border-4 border-purple-600 border-t-transparent rounded-full animate-spin" /> : null
-                      )}
-                      <div>
-                        <p className="text-sm text-gray-900">
-                          {dualProgress.audit.status === 'completed' ? 'Completed' :
-                           dualProgress.audit.status === 'failed' ? 'Failed' : 'Uploading...'}
-                        </p>
-                        {dualProgress.audit.substep && dualProgress.audit.status !== 'completed' && (
-                          <p className="text-xs text-gray-600">{dualProgress.audit.substep}</p>
-                        )}
+                    <div className="flex items-center space-x-1">
+                      <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Audit (LPT)</span>
+                      <div className="relative group">
+                        <MdInfo className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+                        <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 hidden group-hover:block w-72 p-2.5 bg-white border border-gray-300 text-gray-700 text-xs rounded shadow-lg z-[9999] pointer-events-none">
+                          <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-white mr-[-1px]"></div>
+                          <span className="font-semibold text-gray-800">Fixed Header:</span>
+                          <span className="ml-1 text-gray-500">Md5hash|Subject|Creative|del_date|open_date|click_date|unsub_date|delivered|Segment|D_B_Segment|FILE_NAME</span>
+                        </div>
                       </div>
                     </div>
-                    <span className="text-base font-bold text-gray-900">{dualProgress.audit.percentage}%</span>
+                    <span className="text-xs font-bold text-gray-700">{dualProgress.audit.percentage}%</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                  <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
                     <div
-                      className={`h-full transition-all duration-300 ease-out ${
-                        dualProgress.audit.status === 'completed' ? 'bg-green-600' :
-                        dualProgress.audit.status === 'failed' ? 'bg-red-600' : 'bg-purple-600'
+                      className={`h-full transition-all duration-300 ease-out rounded-full ${
+                        dualProgress.audit.status === 'completed' ? 'bg-emerald-500' :
+                        dualProgress.audit.status === 'failed'    ? 'bg-red-500'     : 'bg-indigo-500'
                       }`}
                       style={{ width: `${dualProgress.audit.percentage}%` }}
                     />
                   </div>
+                  <div className="flex items-center space-x-2">
+                    {dualProgress.audit.status === 'completed' && <MdCheck className="w-4 h-4 text-emerald-500" />}
+                    {dualProgress.audit.status === 'failed'    && <MdError className="w-4 h-4 text-red-500" />}
+                    {(dualProgress.audit.status === 'running' || dualProgress.audit.status === 'pending') &&
+                      <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />}
+                    <p className="text-xs text-gray-600">
+                      {dualProgress.audit.status === 'completed' ? 'Completed' :
+                       dualProgress.audit.status === 'failed'    ? 'Failed'    : 'Uploading...'}
+                      {dualProgress.audit.substep && dualProgress.audit.status !== 'completed' &&
+                        <span className="text-gray-400 ml-1">— {dualProgress.audit.substep}</span>}
+                    </p>
+                  </div>
                   {dualProgress.audit.status === 'completed' && dualProgress.audit.result && (
-                    <div className="bg-white border border-gray-200 rounded p-3 text-xs text-gray-600">
-                      <p>Files: <strong>{dualProgress.audit.result.files_uploaded}</strong></p>
-                      <p>Total Rows: <strong>{dualProgress.audit.result.total_rows?.toLocaleString()}</strong></p>
-                      <p>Tables: <strong>{dualProgress.audit.result.tables}</strong></p>
+                    <div className="bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-xs text-gray-500 flex gap-4 flex-wrap">
+                      {dualProgress.audit.result.files_uploaded !== undefined &&
+                        <span>Files: <strong className="text-gray-700">{dualProgress.audit.result.files_uploaded}</strong></span>}
+                      {dualProgress.audit.result.total_rows !== undefined &&
+                        <span>Rows: <strong className="text-gray-700">{dualProgress.audit.result.total_rows.toLocaleString()}</strong></span>}
+                      {dualProgress.audit.result.tables &&
+                        <span>Tables: <strong className="text-gray-700">{dualProgress.audit.result.tables}</strong></span>}
                     </div>
                   )}
                 </div>
               )}
             </div>
+
           ) : (
+
             /* Column Selection View */
-            <div className="space-y-4">
-              {/* Header Type Selection */}
+            <div className="space-y-3">
               <div>
-                <h3 className="text-base font-medium text-gray-900 mb-3 text-left">Select Header Type</h3>
-                <div className="flex flex-col space-y-3">
-                  <label className="flex items-center">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Header Type</p>
+                <div className="flex flex-col space-y-2">
+                  <label className="flex items-center cursor-pointer">
                     <input
                       type="radio"
                       value="standard"
                       checked={headerType === 'standard'}
                       onChange={() => setHeaderType('standard')}
-                      className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                      className="mr-2 h-3.5 w-3.5 text-slate-600 focus:ring-slate-500 border-gray-300"
                       disabled={uploading}
                     />
-                    <span className="text-gray-700 text-base font-medium">Standard Header</span>
-                    <div className="relative group ml-3">
-                      <MdInfo className="w-5 h-5 text-gray-400 cursor-help" />
-                      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 hidden group-hover:block w-96 p-4 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg shadow-lg z-[9999] pointer-events-none">
-                        {/* Arrow pointing left */}
-                        <div className="absolute right-full top-1/2 -translate-y-1/2 border-8 border-transparent border-r-white mr-[-1px]"></div>
-                        <div className="absolute right-full top-1/2 -translate-y-1/2 border-8 border-transparent border-r-gray-300"></div>
-                        <div className="font-semibold text-gray-900 mb-2">Standard columns:</div>
-                        <div className="text-gray-600 leading-relaxed">
-                          Md5hash, Segment, SubSeg, Decile, DeliveredFlag, DeliveredDate, Subject, Creative, OpenDate, ClickDate, UnsubDate
-                        </div>
+                    <span className="text-sm text-gray-700">Standard Header</span>
+                    <div className="relative group ml-2">
+                      <MdInfo className="w-4 h-4 text-gray-400 cursor-help" />
+                      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 hidden group-hover:block w-80 p-3 bg-white border border-gray-300 text-gray-700 text-xs rounded-lg shadow-lg z-[9999] pointer-events-none">
+                        <div className="absolute right-full top-1/2 -translate-y-1/2 border-6 border-transparent border-r-white mr-[-1px]"></div>
+                        <span className="font-semibold text-gray-800">Columns: </span>
+                        <span className="text-gray-600">Md5hash, Segment, SubSeg, Decile, DeliveredFlag, DeliveredDate, Subject, Creative, OpenDate, ClickDate, UnsubDate</span>
                       </div>
                     </div>
                   </label>
-                  <label className="flex items-center">
+                  <label className="flex items-center cursor-pointer">
                     <input
                       type="radio"
                       value="custom"
                       checked={headerType === 'custom'}
                       onChange={() => setHeaderType('custom')}
-                      className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                      className="mr-2 h-3.5 w-3.5 text-slate-600 focus:ring-slate-500 border-gray-300"
                       disabled={uploading}
                     />
-                    <span className="text-gray-700 text-base font-medium">Custom Header (Standard + Custom Columns)</span>
+                    <span className="text-sm text-gray-700">Custom Header <span className="text-gray-400 text-xs">(Standard + extra columns)</span></span>
                   </label>
                 </div>
               </div>
@@ -565,27 +594,22 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
               {/* Custom Column Selection */}
               {headerType === 'custom' && columns && (
                 <div>
-                  <h3 className="text-base font-medium text-gray-900 mb-3">
-                    Select Additional Columns
-                    <span className="ml-2 text-sm font-normal text-gray-500">
-                      ({selectedCustomColumns.length} selected)
-                    </span>
-                  </h3>
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <div className="grid grid-cols-4 gap-3">
+                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
+                    Additional Columns
+                    <span className="ml-1.5 text-gray-400 font-normal normal-case">({selectedCustomColumns.length} selected)</span>
+                  </p>
+                  <div className="border border-gray-200 rounded p-3 bg-gray-50">
+                    <div className="grid grid-cols-4 gap-2">
                       {columns.custom.map(column => (
-                        <label
-                          key={column}
-                          className="flex items-center space-x-2 cursor-pointer"
-                        >
+                        <label key={column} className="flex items-center space-x-1.5 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={selectedCustomColumns.includes(column)}
                             onChange={() => handleCustomColumnToggle(column)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            className="h-3.5 w-3.5 text-slate-600 focus:ring-slate-500 border-gray-300 rounded"
                             disabled={uploading}
                           />
-                          <span className="text-sm text-gray-700">{column}</span>
+                          <span className="text-xs text-gray-700">{column}</span>
                         </label>
                       ))}
                     </div>
@@ -594,65 +618,54 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
               )}
             </div>
           )}
+
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end space-x-2 p-4 border-t border-gray-200">
+        <div className="flex items-center justify-end space-x-2 px-4 py-3 border-t border-gray-200">
           {canReupload && (
             <>
-              {/* Production Re-upload Button - Always show after completion */}
+              {/* Re-upload Production */}
               {dualProgress.production && (
                 <button
                   onClick={() => handleReuploadClick('production')}
-                  className={`px-3 py-2 text-sm font-medium rounded transition-colors flex items-center space-x-2 ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors flex items-center space-x-1.5 ${
                     dualProgress.production.status === 'failed'
                       ? 'bg-red-500 hover:bg-red-600 text-white'
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                      : 'bg-slate-600 hover:bg-slate-700 text-white'
                   }`}
-                  title={
-                    dualProgress.production.status === 'failed'
-                      ? 'Re-upload to Production Snowflake (Failed)'
-                      : 'Re-upload to Production Snowflake'
-                  }
+                  title={dualProgress.production.status === 'failed' ? 'Re-upload Production (failed)' : 'Re-upload Production'}
                 >
-                  <MdRefresh className="h-4 w-4" />
-                  <span>Re-upload Production</span>
+                  <MdRefresh className="h-3.5 w-3.5" />
+                  <span>Re-upload Prod</span>
                 </button>
               )}
 
-              {/* Audit Re-upload Button */}
+              {/* Re-upload Audit */}
               {dualProgress.audit && (
                 <button
                   onClick={() => handleReuploadClick('audit')}
-                  className={`px-3 py-2 text-sm font-medium rounded transition-colors flex items-center space-x-2 ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors flex items-center space-x-1.5 ${
                     dualProgress.audit.status === 'failed'
                       ? 'bg-red-500 hover:bg-red-600 text-white'
-                      : 'bg-purple-500 hover:bg-purple-600 text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                   }`}
-                  title={
-                    dualProgress.audit.status === 'failed'
-                      ? 'Re-upload to Audit LPT Snowflake (Failed)'
-                      : 'Re-upload to Audit LPT Snowflake'
-                  }
+                  title={dualProgress.audit.status === 'failed' ? 'Re-upload Audit (failed)' : 'Re-upload Audit'}
                 >
-                  <MdRefresh className="h-4 w-4" />
+                  <MdRefresh className="h-3.5 w-3.5" />
                   <span>Re-upload Audit</span>
                 </button>
               )}
 
-              {/* Both Re-upload Button - Show when both deliveries exist */}
+              {/* Re-upload Both */}
               {dualProgress.production && dualProgress.audit && (
                 <button
                   onClick={() => handleReuploadClick('both')}
-                  className={`px-3 py-2 text-sm font-medium rounded transition-colors flex items-center space-x-2 ${
-                    dualProgress.production.status === 'failed' && dualProgress.audit.status === 'failed'
-                      ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                      : 'bg-gray-500 hover:bg-gray-600 text-white'
-                  }`}
-                  title="Re-upload to Both Snowflake Accounts"
+                  className="px-3 py-1.5 text-xs font-medium rounded transition-colors flex items-center space-x-1.5 bg-gray-600 hover:bg-gray-700 text-white"
+                  title="Re-upload to Both"
                 >
-                  <MdRefresh className="h-4 w-4" />
+                  <MdRefresh className="h-3.5 w-3.5" />
                   <span>Re-upload Both</span>
                 </button>
               )}
@@ -663,14 +676,14 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
             <button
               onClick={() => startUpload('both')}
               disabled={uploading || loading || (headerType === 'custom' && selectedCustomColumns.length === 0)}
-              className={`px-4 py-2 text-sm font-medium text-white border border-transparent rounded flex items-center space-x-2 transition-all duration-200 ${
+              className={`px-4 py-1.5 text-sm font-medium text-white rounded flex items-center space-x-2 transition-all duration-200 ${
                 uploading || loading || (headerType === 'custom' && selectedCustomColumns.length === 0)
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700 hover:shadow-md'
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-slate-700 hover:bg-slate-800 hover:shadow-sm'
               }`}
-              title={dualUploadToggle ? "Upload data to Both Snowflake Accounts" : "Upload data to Production Snowflake"}
+              title={dualUploadToggle ? 'Upload to Both Snowflake Accounts' : 'Upload to Production Snowflake'}
             >
-              <MdCloudUpload className="h-5 w-5" />
+              <MdCloudUpload className="h-4 w-4" />
               <span>{dualUploadToggle ? 'Start Dual Upload' : 'Start Upload'}</span>
             </button>
           )}
@@ -679,28 +692,24 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
         {/* Re-upload Confirmation Dialog */}
         {showReuploadConfirm && (
           <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 rounded">
-            <div className="bg-white rounded-lg shadow-xl p-5 max-w-md mx-4">
+            <div className="bg-white rounded shadow-xl p-4 max-w-sm mx-4">
               <div className="flex items-start space-x-3">
-                <div className="flex-shrink-0">
-                  <MdInfo className="h-7 w-7 text-yellow-500" />
-                </div>
+                <MdInfo className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <h3 className="text-base font-medium text-gray-900 mb-2">
-                    Confirm Re-upload
-                  </h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Are you sure you want to re-upload? This will replace all existing data in the Snowflake table.
+                  <p className="text-sm font-semibold text-gray-800 mb-1">Confirm Re-upload</p>
+                  <p className="text-xs text-gray-500 mb-3">
+                    This will replace existing data in the Snowflake table.
                   </p>
                   <div className="flex space-x-2 justify-end">
                     <button
                       onClick={handleReuploadCancel}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                      className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
                     >
-                      No
+                      Cancel
                     </button>
                     <button
                       onClick={handleReuploadConfirm}
-                      className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 hover:bg-yellow-600 rounded transition-colors"
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-red-500 hover:bg-red-600 rounded transition-colors"
                     >
                       Yes, Re-upload
                     </button>
@@ -710,6 +719,7 @@ const SnowflakeUploadModal: React.FC<SnowflakeUploadModalProps> = ({
             </div>
           </div>
         )}
+
       </div>
     </div>
   );

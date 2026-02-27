@@ -97,7 +97,7 @@ then
 
         if [[ $? -ne 0 ]]
         then
-            echo -e " Hi Team, \n Unable to delete from client unsub table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " "$ALERT_TO"
+            echo -e " Hi Team, \n Unable to delete from client unsub table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " $ALERT_TO
             $CONNECTION_STRING -vv -c "update $REQUEST_TABLE set request_status='E',request_desc='Unable to delete unsubs from client table' where request_id=$new_request_id "
             exit
         fi
@@ -112,7 +112,7 @@ then
 
         if [[ $? -ne 0 ]]
         then
-            echo -e " Hi Team, \n Unable to update client table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " "$ALERT_TO"
+            echo -e " Hi Team, \n Unable to update client table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " $ALERT_TO
             exit
         fi
 

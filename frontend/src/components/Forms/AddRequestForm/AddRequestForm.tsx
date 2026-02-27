@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import { addRequestSchema, AddRequestFormData } from '../../../utils/validation';
@@ -53,6 +54,16 @@ const AlertModal: React.FC<{
   );
 };
 
+const ALL_MODULES = [
+  { code: 1, value: 'TRT',                 label: '1. TRT' },
+  { code: 2, value: 'Responders',          label: '2. Responders' },
+  { code: 3, value: 'Suppression',         label: '3. Suppression' },
+  { code: 4, value: 'Source',              label: '4. Source' },
+  { code: 5, value: 'Delivered Report',    label: '5. Delivered Report' },
+  { code: 6, value: 'TimeStamp Appending', label: '6. TimeStamp Appending' },
+  { code: 7, value: 'IP Appending',        label: '7. IP Appending' },
+];
+
 interface AddRequestFormProps {
   onComplete?: () => void;
   editMode?: boolean;
@@ -61,6 +72,7 @@ interface AddRequestFormProps {
 
 const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = false, initialData = null }) => {
   const { getUsername } = useAuth();
+  const navigate = useNavigate();
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -144,7 +156,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
       clientSuppressionPath: '',
       requestIdSuppressionList: '',
       timeStampPath: '',
-      fileType: 'Delivered',
+      fileType: 'Sent',
       priorityFile: '',
       priorityFilePer: undefined
     },
@@ -269,6 +281,23 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   // ========================================================================
   // END: Enhanced File Validation State Management
   // ========================================================================
+
+  // Module list available for rerun — depends on request_status and error_code
+  const availableModules = React.useMemo(() => {
+    if (!editMode || !initialData) return ALL_MODULES;
+    if (initialData.request_status === 'C') return ALL_MODULES;
+    const ec = initialData.error_code;
+    if (ec != null && ec >= 1 && ec <= 7) return ALL_MODULES.filter(m => m.code <= ec);
+    return ALL_MODULES.filter(m => m.code === 1); // No valid error code → TRT only
+  }, [editMode, initialData]);
+
+  // Default selected module for rerun
+  const defaultRerunModule = React.useMemo(() => {
+    if (!editMode || !initialData) return 'TRT';
+    const ec = initialData.error_code;
+    if (ec != null && ec >= 1 && ec <= 7) return ALL_MODULES.find(m => m.code === ec)?.value ?? 'TRT';
+    return 'TRT';
+  }, [editMode, initialData]);
 
   // ========================================================================
   // File Upload Event Handlers
@@ -656,14 +685,13 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
       console.log('🔧 Edit mode: Pre-filling form with data:', initialData);
 
       // Section 1: Client Information
-      if (initialData.client_name) {
-        setValue('clientName', initialData.client_name);
-        console.log('✅ Set clientName:', initialData.client_name);
-      }
-      if (initialData.added_by) {
-        setValue('addedBy', initialData.added_by);
-        console.log('✅ Set addedBy:', initialData.added_by);
-      }
+      // NOTE: clientName is NOT set here — a separate useEffect handles it once
+      // the clients list has loaded, to avoid timing + case-mismatch issues.
+      // Always use the currently logged-in user as added_by on edit,
+      // so the record reflects who last modified it.
+      const currentUser = getUsername() || 'Unknown';
+      setValue('addedBy', currentUser);
+      console.log('✅ Set addedBy (current user):', currentUser);
       if (initialData.request_type) {
         setValue('requestType', initialData.request_type.toString());
         console.log('✅ Set requestType:', initialData.request_type);
@@ -776,6 +804,16 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     }
   }, [editMode, initialData, setValue, getUsername]);
 
+  // Runs when clients are loaded — case-insensitive match to fix timing + case bug
+  useEffect(() => {
+    if (editMode && initialData?.client_name && clients.length > 0) {
+      const match = clients.find(
+        c => c.client_name.toLowerCase() === initialData.client_name.toLowerCase()
+      );
+      setValue('clientName', match ? match.client_name : initialData.client_name.toLowerCase());
+    }
+  }, [editMode, initialData, clients, setValue]);
+
   // Show file path input when Type 2 is selected
   useEffect(() => {
     setShowFilePath(requestType === '2');
@@ -829,7 +867,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
       console.log('🔗 Testing backend connection at http://localhost:5000...');
 
       // Load real data from backend
-      const clientsData = await ClientService.getClients();
+      const clientsData = await ClientService.getClients({ excludeActive: !editMode });
       setClients(clientsData);
       setBackendConnected(true);
 
@@ -1156,12 +1194,20 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     <div className="w-full bg-white min-h-screen py-3">
       {/* Header with Edit Mode Indicator */}
       {editMode && (
-        <div className="mb-3 flex justify-end">
+        <div className="mb-3 flex justify-end items-center gap-2">
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-1">
             <div className="text-right text-sm text-yellow-800 font-medium">
               Edit Mode :: {initialData?.request_id} :: {initialData?.client_name}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => window.location.replace('/add-request')}
+            className="px-3 py-1 bg-white hover:bg-red-50 text-gray-500 hover:text-red-600 rounded-lg text-sm font-medium transition-colors border border-gray-300 hover:border-red-300"
+            title="Close and go to Add Request"
+          >
+            ✕ Close
+          </button>
         </div>
       )}
 
@@ -1819,16 +1865,12 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
                     </label>
                     <select
                       name="rerunModule"
-                      defaultValue="TRT"
+                      defaultValue={defaultRerunModule}
                       className="w-80 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white text-sm"
                     >
-                      <option value="TRT">1. TRT</option>
-                      <option value="Responders">2. Responders</option>
-                      <option value="Suppression">3. Suppression</option>
-                      <option value="Source">4. Source</option>
-                      <option value="Delivered Report">5. Delivered Report</option>
-                      <option value="TimeStamp Appending">6. TimeStamp Appending</option>
-                      <option value="IP Appending">7. IP Appending</option>
+                      {availableModules.map((mod) => (
+                        <option key={mod.code} value={mod.value}>{mod.label}</option>
+                      ))}
                     </select>
                   </div>
                 </div>

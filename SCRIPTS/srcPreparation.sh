@@ -41,6 +41,7 @@ error_fun()
     ( '<b>ADDED_BY</b>', ADDED_BY::text)) x(Header, Value)" >$SPOOLPATH/fetchRequestDetails.csv
 
     sh $SCRIPTPATH/sendMail.sh "$REQUEST_ID"
+    sh $SCRIPTPATH/cancelRequest.sh "$REQUEST_ID"
         exit
 
 }
@@ -170,7 +171,7 @@ query="delete from $TRT_TABLE a using $posted_unsub_table b where a.email=b.emai
 #unsubs_supp_cnt=$(python3 $SCRIPTPATH/delete_partitions.py "$query" "$REQUEST_ID")
 
 
-unsubs_supp_cnt=$(python3 "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
+unsubs_supp_cnt=$("$MAIN_PATH/CAM_Env/bin/python3" "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
 
 if [[ $? -ne 0 ]]
 then

@@ -592,11 +592,22 @@ def get_upload_status(request_id):
                 'error': 'Request not found'
             }), 404
 
+        # Determine audit status from request_desc
+        # Audit appends '| Audit: Uploaded' or '| Audit: FAILED' to request_desc
+        request_desc = result[3] or ''
+        if '| Audit: Uploaded' in request_desc:
+            audit_status = 'success'
+        elif '| Audit: FAILED' in request_desc:
+            audit_status = 'failed'
+        else:
+            audit_status = None
+
         upload_status = {
             'status': result[0],  # NULL, 'success', 'failed'
             'table_name': result[1],
             'upload_time': result[2].isoformat() if result[2] else None,
-            'error': result[3] if result[0] == 'failed' else None  # request_desc contains error for failed uploads
+            'error': result[3] if result[0] == 'failed' else None,
+            'audit_status': audit_status
         }
 
         logger.info(f"Upload status for request {request_id}: {upload_status['status']}")

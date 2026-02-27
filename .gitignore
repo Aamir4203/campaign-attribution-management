@@ -147,7 +147,7 @@ public
 # Temporary folders
 tmp/
 temp/
-
+backend/REPORT_FILES/
 # Database connection files (security)
 **/config/database.json
 **/config/database.yml
@@ -160,3 +160,6 @@ temp/
 # Snowflake private keys
 backend/.snowflake/
 *.p8
+
+# Request processing working directory
+REQUEST_PROCESSING/

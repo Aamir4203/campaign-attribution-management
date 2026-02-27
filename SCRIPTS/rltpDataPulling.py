@@ -43,7 +43,6 @@ cfg = get_config()
 # Add custom module paths from config
 sys.path.append(cfg.python_modules_path)
 from DbConns import *
-from DB_conns import *
 
 import log_module
 
