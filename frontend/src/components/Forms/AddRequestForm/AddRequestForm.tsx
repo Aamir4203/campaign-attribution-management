@@ -287,7 +287,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
     if (!editMode || !initialData) return ALL_MODULES;
     if (initialData.request_status === 'C') return ALL_MODULES;
     const ec = initialData.error_code;
-    if (ec != null && ec >= 1 && ec <= 7) return ALL_MODULES.filter(m => m.code <= ec);
+    if (ec != 0 && ec >= 1 && ec <= 7) return ALL_MODULES.filter(m => m.code <= ec);
     return ALL_MODULES.filter(m => m.code === 1); // No valid error code → TRT only
   }, [editMode, initialData]);
 
@@ -295,7 +295,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
   const defaultRerunModule = React.useMemo(() => {
     if (!editMode || !initialData) return 'TRT';
     const ec = initialData.error_code;
-    if (ec != null && ec >= 1 && ec <= 7) return ALL_MODULES.find(m => m.code === ec)?.value ?? 'TRT';
+    if (ec != 0 && ec >= 1 && ec <= 7) return ALL_MODULES.find(m => m.code === ec)?.value ?? 'TRT';
     return 'TRT';
   }, [editMode, initialData]);
 
