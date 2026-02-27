@@ -636,9 +636,11 @@ def process_decile_worker(args):
         sample_rows = sf_cursor.fetchall()
         logger.info(f"Sample rows for {decile_name}: {sample_rows}")
 
-        # Apply audit limit for specific clients (from config)
+        # Apply random ordering for all queries; audit clients also get a row limit
         if cfg.is_audit_client(client_id):
             query = f"{query} order by random() limit {audit_trt_limit}"
+        else:
+            query = f"{query} order by random()"
 
         # Define output file (use config method for FILES path)
         files_path = cfg.get_files_path(request_id)
