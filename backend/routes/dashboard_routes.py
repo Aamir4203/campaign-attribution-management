@@ -50,9 +50,9 @@ def get_dashboard_metrics():
         queries = {
             'total_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause}",
             'active_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'R'",
-            'waiting_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'W'",
+            'waiting_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'W' AND request_validation IS NULL",
             'completed_today': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'C'",
-            'failed_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND request_status = 'E'",
+            'failed_requests': f"SELECT COUNT(*) FROM {requests_table} {where_clause} AND (request_status = 'E' OR (request_status = 'W' AND request_validation = 'N'))",
             'avg_execution_time': f"""
                 SELECT AVG(
                     CASE
@@ -355,7 +355,7 @@ def get_system_status():
         cursor.execute(f"SELECT COUNT(*) FROM {requests_table} WHERE request_status = 'R'")
         active_requests = cursor.fetchone()[0]
 
-        cursor.execute(f"SELECT COUNT(*) FROM {requests_table} WHERE request_status = 'W'")
+        cursor.execute(f"SELECT COUNT(*) FROM {requests_table} WHERE request_status = 'W' AND request_validation IS NULL")
         pending_requests = cursor.fetchone()[0]
 
         cursor.close()

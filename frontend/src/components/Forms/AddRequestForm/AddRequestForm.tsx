@@ -1202,7 +1202,7 @@ const AddRequestForm: React.FC<AddRequestFormProps> = ({ onComplete, editMode = 
           </div>
           <button
             type="button"
-            onClick={() => window.location.replace('/add-request')}
+            onClick={() => navigate('/add-request', { replace: true, state: null })}
             className="px-3 py-1 bg-white hover:bg-red-50 text-gray-500 hover:text-red-600 rounded-lg text-sm font-medium transition-colors border border-gray-300 hover:border-red-300"
             title="Close and go to Add Request"
           >

@@ -15,7 +15,7 @@ database:
   tables:
     # Static table names
     clients: "APT_CUSTOM_CLIENT_INFO_TABLE_DND"
-    requests: "APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND_TEST"  # Production table (no _TEST suffix)
+    requests: "APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND"  # Production table (no _TEST suffix)
     qa_stats: "APT_CUSTOM_POSTBACK_QA_TABLE_DND"
     tracking: "APT_CUSTOM_REQUEST_PROCESS_TRACKING_DND"
     hards: "APT_CUSTOM_EOS_INVALIDS_DND"
@@ -85,7 +85,7 @@ snowflake:
     table:
       name_template: "APT_CUSTOM_{client_name}_{week}_{date}"
       schema_suffix: "_FINAL"
-      sf_final_table: "APT_CUSTOM_{client_name}_{week}_{date}_FINAL"
+      sf_final_table: "APT_CUSTOM_{client_name}_{week}"
       overwrite_on_reupload: true
     columns:
       standard_header:
@@ -359,7 +359,7 @@ features:
 # REQUEST AUTOMATION - PRODUCTION
 # =============================================================================
 automation:
-  enabled: true  # Enabled for production
+  enabled: false  # Enabled for production
   interval_seconds: 60
   script_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/requestPicker.sh"
   script_timeout_seconds: 300

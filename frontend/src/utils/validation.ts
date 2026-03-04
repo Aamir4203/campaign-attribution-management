@@ -41,10 +41,10 @@ export const addRequestSchema = yup.object({
     .string()
     .required('End date is required')
     .matches(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format')
-    .test('end-after-start', 'End date must be after start date', function(value) {
+    .test('end-after-start', 'End date must not be before start date', function(value) {
       const { startDate } = this.parent;
       if (startDate && value) {
-        return new Date(value) > new Date(startDate);
+        return new Date(value) >= new Date(startDate);
       }
       return true;
     }),
