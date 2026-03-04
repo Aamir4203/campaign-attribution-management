@@ -36,6 +36,8 @@ error_fun()
     ( '<b>ADDED_BY</b>', ADDED_BY::text)) x(Header, Value)" >$SPOOLPATH/fetchRequestDetails.csv
 
     sh $SCRIPTPATH/sendMail.sh "$REQUEST_ID"
+    sh $SCRIPTPATH/cancelRequest.sh "$REQUEST_ID"
+    exit
 
 }
 
@@ -161,7 +163,7 @@ then
 fi
 
 $CONNECTION_STRING  -vv -c "UPDATE $REQUEST_TABLE SET REQUEST_DESC='Adjusting OR/CR' WHERE REQUEST_ID=$REQUEST_ID "
-/usr/bin/python3 $SCRIPTPATH/openClickAdjustment.py "$REQUEST_ID"
+"$MAIN_PATH/CAM_Env/bin/python3" $SCRIPTPATH/openClickAdjustment.py "$REQUEST_ID"
 
 
 

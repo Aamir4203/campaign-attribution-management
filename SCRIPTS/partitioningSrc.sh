@@ -31,6 +31,7 @@ error_fun()
     ( '<b>NEW_RECORD_CNT</b>', NEW_RECORD_CNT::text )) x(Header, Value)" >$SPOOLPATH/fetchRequestDetails.csv
 
     sh $SCRIPTPATH/sendMail.sh "$REQUEST_ID"
+    sh $SCRIPTPATH/cancelRequest.sh "$REQUEST_ID"
         exit
 
 }

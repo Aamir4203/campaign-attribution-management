@@ -22,10 +22,11 @@ export interface User {
 
 export class ClientService {
   // Get all clients for dropdown (from addRequest.html route)
-  static async getClients(): Promise<Client[]> {
+  static async getClients(options?: { excludeActive?: boolean }): Promise<Client[]> {
     try {
+      const params = options?.excludeActive ? { exclude_active: 'true' } : {};
       console.log('🔗 Fetching clients from http://localhost:5000/api/clients');
-      const response = await api.get('/api/clients');
+      const response = await api.get('/api/clients', { params });
 
       console.log('📡 Raw response:', response);
       console.log('📋 Response data:', response.data);

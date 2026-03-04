@@ -36,6 +36,7 @@ error_fun()
     ( '<b>ADDED_BY</b>', ADDED_BY::text)) x(Header, Value)" >$SPOOLPATH/fetchRequestDetails.csv
 
     sh $SCRIPTPATH/sendMail.sh "$REQUEST_ID"
+    sh $SCRIPTPATH/cancelRequest.sh "$REQUEST_ID"
         exit
 
 }
@@ -88,7 +89,7 @@ then
         #suppressed_cnt=`$CONNECTION_STRING -qtAX -c "with cte as (delete from $TRT_TABLE a using $SUPP_TABLE b where a.email=b.email returning 1) select count(*) from cte"`
 
         query="delete from $TRT_TABLE a using $SUPP_TABLE b where a.email=b.email "
-        suppressed_cnt=$(python3 "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
+        suppressed_cnt=$("$MAIN_PATH/CAM_Env/bin/python3" "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
 
 
         if [[ $? -ne 0 ]]
@@ -127,7 +128,7 @@ else
         #suppressed_cnt=`$CONNECTION_STRING -qtAX -c "SET enable_seqscan TO off;with cte as (delete from $TRT_TABLE a using $SUPP_TABLE b where a.md5hash=b.md5hash returning 1) select count(*) from cte"`
 
         query="delete from $TRT_TABLE a using $SUPP_TABLE b where a.md5hash=b.md5hash "
-        suppressed_cnt=$(python3 "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
+        suppressed_cnt=$("$MAIN_PATH/CAM_Env/bin/python3" "$SCRIPTPATH/delete_partitions.py" "$query" "$REQUEST_ID" 2>/dev/null)
 
 
         if [[ $? -ne 0 ]]
@@ -156,7 +157,7 @@ then
 
         echo "MODULE3: REQUEST_ID SUPPRESSION START TIME: `date`"
 
-        python3 $SCRIPTPATH/requestIdSuppression.py "$SCRIPTPATH" "$REQUEST_ID" "$TRT_TABLE" "$QA_TABLE"
+        "$MAIN_PATH/CAM_Env/bin/python3" $SCRIPTPATH/requestIdSuppression.py "$SCRIPTPATH" "$REQUEST_ID" "$TRT_TABLE" "$QA_TABLE"
 
         if [[ $? -ne 0 ]]
         then

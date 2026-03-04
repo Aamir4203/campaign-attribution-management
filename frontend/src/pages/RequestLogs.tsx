@@ -202,9 +202,9 @@ interface Request {
 // Status badge component with clean styling and validation awareness
 const StatusBadge: React.FC<{ status: string; validation?: string | null }> = ({ status, validation }) => {
   const getStatusDisplay = (status: string, validation?: string | null) => {
-    // If status is 'W' (Waiting) but validation is 'N' (No/Failed), show validation failed
+    // If status is 'W' (Waiting) but validation is 'N' (No/Failed), show error
     if (status === 'W' && validation === 'N') {
-      return { text: 'Validation Failed', className: 'bg-red-100 text-red-800 border-red-300 font-semibold' };
+      return { text: 'Error', className: 'bg-red-100 text-red-800 border-red-300 font-semibold' };
     }
 
     // If status is 'W' and validation is 'V' (Validating), show validating status
@@ -373,8 +373,9 @@ const EditButton: React.FC<{ request: Request }> = ({ request }) => {
 
   // Show for:
   // - Cancelled/Killed (E) or Completed (C) status
-  // - Validation Failed (W with validation='N')
-  const isValidationFailed = request.request_status === 'W' && request.request_validation === 'N';
+  // - Validation Failed: status is W/RE/RW and validation='N'
+  //   (requestPicker picks W, RE, and RW requests for validation, so any can fail)
+  const isValidationFailed = ['W', 'RE', 'RW'].includes(request.request_status) && request.request_validation === 'N';
   const canEdit = ['E', 'C'].includes(request.request_status) || isValidationFailed;
 
   if (!canEdit) {
@@ -390,9 +391,13 @@ const EditButton: React.FC<{ request: Request }> = ({ request }) => {
       const detailedData = await requestService.getRequestDetails(request.request_id);
       console.log('📋 Detailed data received:', detailedData);
 
-      // Combine basic request data with detailed data
+      // detailedData = { success: true, request: { ... all fields ... } }
+      // Spread the nested request object so all fields are at top level
+      const requestFromApi = (detailedData.success && detailedData.request) ? detailedData.request : {};
+
+      // Combine basic request data with detailed data (detailed overrides basic)
       const combinedData = {
-        // Basic info from current request
+        // Basic info from current request (fallback if API missing)
         request_id: request.request_id,
         client_name: request.client_name,
         week: request.week,
@@ -401,8 +406,8 @@ const EditButton: React.FC<{ request: Request }> = ({ request }) => {
         request_status: request.request_status,
         request_desc: request.request_desc,
         execution_time: request.execution_time,
-        // Detailed data from API (may override basic data)
-        ...detailedData
+        // Full detail from API (overrides basic data with proper field names)
+        ...requestFromApi
       };
 
       console.log('🔧 Combined data for edit mode:', combinedData);
@@ -608,11 +613,11 @@ const UploadButton: React.FC<{ request: Request; onAction: () => void; onAlert: 
 
 const RequestLogs: React.FC = () => {
   const navigate = useNavigate();
-  const [requests, setRequests] = useState<Request[]>([]);
+  // allRequests holds the full dataset fetched from backend (up to monitorMaxRecords)
+  const [allRequests, setAllRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
 
   // Alert state
@@ -637,28 +642,37 @@ const RequestLogs: React.FC = () => {
   };
 
   const requestsPerPage = 50;
+  const searchTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref so the auto-refresh interval always sees the latest search term
+  const searchTermRef = React.useRef(searchTerm);
+  React.useEffect(() => { searchTermRef.current = searchTerm; }, [searchTerm]);
 
-  // Load requests from API
-  const loadRequests = async () => {
+  // Pagination over whatever the backend returned (no client-side filtering)
+  const totalPages = Math.max(1, Math.ceil(allRequests.length / requestsPerPage));
+  const displayRequests = allRequests.slice(
+    (currentPage - 1) * requestsPerPage,
+    currentPage * requestsPerPage
+  );
+
+  // Load requests from API — passes search term to backend when present
+  const loadRequests = async (search: string = '') => {
     try {
       setRefreshing(true);
       console.log('🔄 Loading requests from backend API...');
 
-      const data = await requestService.getRequests({
-        page: currentPage,
-        limit: requestsPerPage,
-        search: searchTerm
-      });
+      // When searching, raise the limit so the backend scans the full table
+      const params = search.trim()
+        ? { limit: 500, search: search.trim() }
+        : { limit: 200 };
+      const data = await requestService.getRequests(params);
 
       console.log('✅ Data received from backend:', data);
-      setRequests(data.requests || []);
-      setTotalPages(Math.ceil((data.total || 0) / requestsPerPage));
+      setAllRequests(data.requests || []);
 
     } catch (error) {
       console.error('❌ Failed to load requests from backend:', error);
       console.warn('⚠️ Using fallback sample data for development');
 
-      // Fallback sample data only for development when backend is not available
       const fallbackData = [
         {
           request_id: 6589,
@@ -692,8 +706,7 @@ const RequestLogs: React.FC = () => {
         }
       ];
 
-      setRequests(fallbackData);
-      setTotalPages(1);
+      setAllRequests(fallbackData);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -703,26 +716,30 @@ const RequestLogs: React.FC = () => {
   // Initial load
   useEffect(() => {
     loadRequests();
-  }, [currentPage, searchTerm]);
+  }, []);
 
-  // Auto-refresh every 30 seconds (hybrid approach)
+  // Auto-refresh every 30 seconds — uses ref to pick up latest search term without re-registering
   useEffect(() => {
     const interval = setInterval(() => {
-      loadRequests();
-    }, 30000); // 30 seconds
-
+      loadRequests(searchTermRef.current.trim());
+    }, 30000);
     return () => clearInterval(interval);
-  }, [currentPage, searchTerm]);
+  }, []);
 
-  // Handle search
+  // Handle search — debounce the API call so it fires 400 ms after the user stops typing
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
-    setCurrentPage(1); // Reset to first page on search
+    const value = e.target.value;
+    setSearchTerm(value);
+    setCurrentPage(1);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      loadRequests(value.trim());
+    }, 400);
   };
 
-  // Handle manual refresh
+  // Handle manual refresh — preserve current search term
   const handleRefresh = () => {
-    loadRequests();
+    loadRequests(searchTerm.trim());
   };
 
   if (loading) {
@@ -799,7 +816,7 @@ const RequestLogs: React.FC = () => {
             </tr>
           </thead>
           <tbody className="bg-white">
-            {requests.map((request) => (
+            {displayRequests.map((request) => (
               <tr key={request.request_id} className="hover:bg-blue-25 transition-colors">
                 <td className="w-20 px-2 py-2 text-sm font-medium text-gray-900 border-b border-gray-100 align-middle overflow-hidden">
                   <TableCell content={request.request_id.toString()} />
@@ -846,7 +863,7 @@ const RequestLogs: React.FC = () => {
       <div className="flex-shrink-0 bg-white px-2 py-3 border-t border-gray-200">
         <div className="flex items-center justify-between">
           <div className="text-sm text-gray-700">
-            Showing page {currentPage} of {totalPages} ({requestsPerPage} per page)
+            {`${allRequests.length} requests · page ${currentPage} of ${totalPages}`}
           </div>
           <div className="flex items-center space-x-2">
             <button
@@ -872,7 +889,7 @@ const RequestLogs: React.FC = () => {
 
       {/* Auto-refresh indicator - Fixed at very bottom */}
       <div className="flex-shrink-0 bg-gray-50 text-center text-sm text-gray-500 py-2">
-        Auto-refresh every 30 seconds • Last updated: {new Date().toLocaleTimeString()} • {requests.length} requests shown
+        Auto-refresh every 30 seconds • Last updated: {new Date().toLocaleTimeString()} • {allRequests.length} requests shown
       </div>
 
       {/* Custom Alert Modal */}

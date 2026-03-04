@@ -43,7 +43,6 @@ cfg = get_config()
 # Add custom module paths from config
 sys.path.append(cfg.python_modules_path)
 from DbConns import *
-from DB_conns import *
 
 import log_module
 
@@ -621,9 +620,12 @@ def process_decile_worker(args):
         if is_decile_wise:
             decile_column = query.split(",")[4].strip().split(" ")[0]
             if not re.findall("where", query, re.IGNORECASE):
-                query = f"{query} WHERE {decile_column}='{decile_name}'"
+                query = f"{query} WHERE {decile_column}='{decile_name}' order by random()"
             else:
-                query = f"{query} AND {decile_column}='{decile_name}'"
+                query = f"{query} AND {decile_column}='{decile_name}' order by random()"
+
+        else:
+            query = f"{query} order by random() "
 
         start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         logger.info(
@@ -637,9 +639,11 @@ def process_decile_worker(args):
         sample_rows = sf_cursor.fetchall()
         logger.info(f"Sample rows for {decile_name}: {sample_rows}")
 
-        # Apply audit limit for specific clients (from config)
+        # Apply random ordering for all queries; audit clients also get a row limit
         if cfg.is_audit_client(client_id):
-            query = f"{query} order by random() limit {audit_trt_limit}"
+            query = f"{query}  limit {audit_trt_limit}"
+        else:
+            query = f"{query} "
 
         # Define output file (use config method for FILES path)
         files_path = cfg.get_files_path(request_id)

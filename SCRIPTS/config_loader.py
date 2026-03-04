@@ -31,13 +31,26 @@ class ConfigLoader:
 
     def _load_config(self):
         """Load configuration from unified YAML file."""
-        # Path to unified config: SCRIPTS/../shared/config/app.yaml
-        scripts_dir = os.path.dirname(__file__)
-        project_root = os.path.dirname(scripts_dir)
-        config_path = os.path.join(project_root, 'shared', 'config', 'app.yaml')
+        # Walk up from this file's location to find the project root containing shared/config/app.yaml.
+        # This works whether config_loader.py is in SCRIPTS/ (1 level up) or
+        # copied to REQUEST_PROCESSING/<id>/SCRIPTS/ (3 levels up).
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = None
+        while True:
+            candidate = os.path.join(current_dir, 'shared', 'config', 'app.yaml')
+            if os.path.exists(candidate):
+                config_path = candidate
+                break
+            parent = os.path.dirname(current_dir)
+            if parent == current_dir:  # reached filesystem root
+                break
+            current_dir = parent
 
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+        if config_path is None:
+            raise FileNotFoundError(
+                "Configuration file not found: could not locate shared/config/app.yaml "
+                f"in any parent directory of {os.path.dirname(os.path.abspath(__file__))}"
+            )
 
         with open(config_path, 'r') as f:
             ConfigLoader._config = yaml.safe_load(f)

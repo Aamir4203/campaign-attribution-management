@@ -28,11 +28,28 @@ def get_clients():
 
         cursor = conn.cursor()
         clients_table = config.get_table_name('clients')
-        query = f"""
-            SELECT lower(client_name) as client_name
-            FROM {clients_table}
-            ORDER BY client_name
-        """
+        exclude_active = request.args.get('exclude_active', 'false').lower() == 'true'
+
+        if exclude_active:
+            requests_table = config.get_table_name('requests')
+            query = f"""
+                SELECT lower(client_name) as client_name
+                FROM {clients_table}
+                WHERE lower(client_name) NOT IN (
+                    SELECT lower(b.client_name)
+                    FROM {requests_table} a
+                    JOIN {clients_table} b ON a.client_id = b.client_id
+                    WHERE a.request_status IN ('W', 'R', 'RE', 'RW')
+                    AND a.request_validation = 'Y'
+                )
+                ORDER BY client_name
+            """
+        else:
+            query = f"""
+                SELECT lower(client_name) as client_name
+                FROM {clients_table}
+                ORDER BY client_name
+            """
 
         cursor.execute(query)
         results = cursor.fetchall()

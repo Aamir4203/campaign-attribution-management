@@ -40,7 +40,10 @@
       "WebSearch",
       "WebFetch(domain:support.claude.com)",
       "Bash(grep:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(cmp /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/config_loader.py /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/REQUEST_PROCESSING/7912/SCRIPTS/config_loader.py && echo \"Files are identical\" || echo \"Files differ\")",
+      "Bash(cmp /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/requestValidation.py /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/REQUEST_PROCESSING/7912/SCRIPTS/requestValidation.py && echo \"Files are identical\" || echo \"Files differ\")",
+      "Bash(cmp /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/rltpDataPulling.py /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/REQUEST_PROCESSING/7912/SCRIPTS/rltpDataPulling.py && echo \"Files are identical\" || echo \"Files differ\")"
     ]
   }
 }

@@ -23,7 +23,7 @@ $CONNECTION_STRING -F'|' --pset footer -X -A -c "select * from $CLIENT_TABLE" > 
 if [[ $? -ne 0 ]]; then
     echo "ERROR: Failed to backup $CLIENT_TABLE"
     echo -e "Hi Team,\n\nFailed to backup $CLIENT_TABLE.\n\nThanks,\nDataAttribution" | \
-        mail -r "$ALERT_SENDER" -s "PURGING ERROR: Backup Failed" "$ALERT_TO"
+        mail -r "$ALERT_SENDER" -s "PURGING ERROR: Backup Failed" $ALERT_TO
     exit 1
 fi
 
@@ -37,7 +37,7 @@ echo "Uploading backups to S3..."
 if [[ $? -ne 0 ]]; then
     echo "WARNING: S3 upload failed for core table backups"
     echo -e "Hi Team,\n\nS3 upload failed for core table backups.\n\nThanks,\nDataAttribution" | \
-        mail -r "$ALERT_SENDER" -s "PURGING WARNING: S3 Upload Failed" "$ALERT_TO"
+        mail -r "$ALERT_SENDER" -s "PURGING WARNING: S3 Upload Failed" $ALERT_TO
 fi
 
 #=== BACKUP UNSUB TABLES ===#
@@ -48,7 +48,7 @@ $CONNECTION_STRING -qtAX -c "select posted_unsub_hards_table from $CLIENT_TABLE"
 if [ $? -ne 0 ]; then
     echo "ERROR: Unable to fetch posted_unsub_hards_table data"
     echo -e "Hi Team,\n\nUnable to fetch posted_unsub_hards_table data from Client Table.\n\nThanks,\nDataAttribution" | \
-        mail -r "$ALERT_SENDER" -s "PURGING ERROR: Client Table Query Failed" "$ALERT_TO"
+        mail -r "$ALERT_SENDER" -s "PURGING ERROR: Client Table Query Failed" $ALERT_TO
     exit 1
 fi
 
@@ -78,7 +78,7 @@ $CONNECTION_STRING -qtAX -c \
 if [ $? -ne 0 ]; then
     echo "ERROR: Unable to fetch data from Request Table"
     echo -e "Hi Team,\n\nUnable to fetch data from Request Table.\n\nThanks,\nDataAttribution" | \
-        mail -r "$ALERT_SENDER" -s "PURGING ERROR: Request Table Query Failed" "$ALERT_TO"
+        mail -r "$ALERT_SENDER" -s "PURGING ERROR: Request Table Query Failed" $ALERT_TO
     exit 1
 fi
 
@@ -98,7 +98,7 @@ if [ -s "$SPOOLPATH/request_id.txt" ]; then
         if [ $? -ne 0 ]; then
             echo "ERROR: Unable to fetch client name for client_id=$CLIENT_ID"
             echo -e "Hi Team,\n\nUnable to fetch client name for client_id=$CLIENT_ID.\n\nThanks,\nDataAttribution" | \
-                mail -r "$ALERT_SENDER" -s "PURGING ERROR: Client Name Fetch Failed" "$ALERT_TO"
+                mail -r "$ALERT_SENDER" -s "PURGING ERROR: Client Name Fetch Failed" $ALERT_TO
             continue
         fi
 
@@ -139,7 +139,7 @@ if [ -s "$SPOOLPATH/request_id.txt" ]; then
         if [ $? -ne 0 ]; then
             echo "ERROR: Unable to update purged status for request_id=$REQUEST_ID"
             echo -e "Hi Team,\n\nUnable to update purged status for request_id=$REQUEST_ID.\n\nThanks,\nDataAttribution" | \
-                mail -r "$ALERT_SENDER" -s "PURGING ERROR: Update Failed" "$ALERT_TO"
+                mail -r "$ALERT_SENDER" -s "PURGING ERROR: Update Failed" $ALERT_TO
             continue
         fi
 

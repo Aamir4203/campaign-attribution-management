@@ -97,7 +97,7 @@ then
 
         if [[ $? -ne 0 ]]
         then
-            echo -e " Hi Team, \n Unable to delete from client unsub table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " "$ALERT_TO"
+            echo -e " Hi Team, \n Unable to delete from client unsub table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " $ALERT_TO
             $CONNECTION_STRING -vv -c "update $REQUEST_TABLE set request_status='E',request_desc='Unable to delete unsubs from client table' where request_id=$new_request_id "
             exit
         fi
@@ -112,7 +112,7 @@ then
 
         if [[ $? -ne 0 ]]
         then
-            echo -e " Hi Team, \n Unable to update client table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " "$ALERT_TO"
+            echo -e " Hi Team, \n Unable to update client table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " $ALERT_TO
             exit
         fi
 
@@ -122,6 +122,15 @@ then
 
 elif [[ $new_request_status == 'RE' ]]
 then
+    # If the working directory doesn't exist (e.g. request was cancelled before
+    # setup completed, or came from W+N → cancel → re-run), treat as fresh start
+    if [ ! -d "$HOMEPATH" ]; then
+        echo "Working directory missing for RE request $new_request_id — running setup and restarting from step 1"
+        setup_request_environment "$new_request_id"
+        sh -x "$SCRIPTPATH/trtPreparation.sh" "$new_request_id" >>"$HOMEPATH/LOGS/${new_request_id}.log" 2>&1
+        exit $?
+    fi
+
     request_error_code=`$CONNECTION_STRING -qtAX -c "select error_code from $REQUEST_TABLE where request_id=$new_request_id "`
 
     request_status=`$CONNECTION_STRING -qtAX -c "select upper(request_status) from  $REQUEST_TABLE where REQUEST_ID=$new_request_id"`

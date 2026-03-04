@@ -18,6 +18,7 @@ const AddRequest: React.FC = () => {
   return (
     <div className="w-full h-full"> {/* Simple direct layout */}
       <AddRequestForm
+        key={editMode ? `edit-${requestData?.request_id}` : 'new'}
         onComplete={handleFormComplete}
         editMode={editMode}
         initialData={requestData}

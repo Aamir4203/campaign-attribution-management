@@ -7,7 +7,7 @@
 # DATABASE CONFIGURATION - PRODUCTION
 # =============================================================================
 database:
-  host: "zds-prod-pgdb03-01.bo3.e-dialog.com"  # Production server
+  host: "zds-prod-pgdb01-01.bo3.e-dialog.com"  # Production server
   port: 5432
   database: "apt_tool_db"
   username: "datateam"
@@ -85,7 +85,7 @@ snowflake:
     table:
       name_template: "APT_CUSTOM_{client_name}_{week}_{date}"
       schema_suffix: "_FINAL"
-      sf_final_table: "APT_CUSTOM_{client_name}_{week}_{date}_FINAL"
+      sf_final_table: "APT_CUSTOM_{client_name}_{week}"
       overwrite_on_reupload: true
     columns:
       standard_header:
@@ -119,7 +119,7 @@ snowflake:
       private_key_passphrase: "Jsw44QTLRYYGLGBgfhXQR7webwaxArWx"
       database: "GREEN"
       schema: "INFS_LPT"
-      warehouse: "GREENT_LPT2"
+      warehouse: "GREEN_ADHOC"
       role: "GREEN_ADMIN_ROLE"
     table:
       name_template: "CUSTOM_ZX_STATS_MASTER_{year}_{month}"
@@ -223,7 +223,7 @@ alerts:
   # - Shell scripts (via config.properties ALERT_TO)
   # - Python scripts (via config_loader.py)
   # - Backend services (via config.py)
-  email_recipients: "akhan@zetaglobal.com,attributionteam@zetaglobal.com"
+  email_recipients: "akhan@aptroid.com,attributionteam@aptroid.com"
 
   # Sender address for all email notifications
   # Format: "Display Name <email@domain.com>" or just "email@domain.com"
@@ -231,7 +231,7 @@ alerts:
   #   - Shell scripts: mail -r "$ALERT_SENDER"
   #   - Python scripts: msg['From'] = config.alert_sender
   #   - sendmail scripts: echo "From: $ALERT_SENDER"
-  sender: "CAM Alerts <cam@zetaglobal.com>"
+  sender: "CAM <cam@aptroid.com>"
 
   # Alternative sender format (simple email only):
   # sender: "cam@zetaglobal.com"
@@ -243,6 +243,7 @@ constants:
   pagination:
     defaultPageSize: 50
     maxPageSize: 500
+    monitorMaxRecords: 200   # Max rows loaded in the Request Monitor tab (most recent N requests)
 
   requests:
     maxRetries: 3
@@ -352,15 +353,15 @@ features:
   file_upload_enabled: true
   hybrid_input_mode: true
   realtime_validation: true
-  dual_sf_upload: false  # Default state for dual upload toggle
+  dual_sf_upload: true  # Default state for dual upload toggle
 
 # =============================================================================
 # REQUEST AUTOMATION - PRODUCTION
 # =============================================================================
 automation:
-  enabled: true  # Enable for production
+  enabled: false  # Enabled for production
   interval_seconds: 60
-  script_path: "./SCRIPTS/requestPicker.sh"
+  script_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/requestPicker.sh"
   script_timeout_seconds: 300
 
 # =============================================================================
@@ -401,7 +402,6 @@ queries:
            b.prev_week_pb_table,
            b.total_delivered_table,
            b.posted_unsub_hards_table,
-           b.posted_bounce_table,
            b.weeklynewrltpid
     FROM {requests_table} a
     JOIN {clients_table} b ON a.client_id = b.client_id
