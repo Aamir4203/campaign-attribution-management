@@ -359,7 +359,7 @@ features:
 # REQUEST AUTOMATION - PRODUCTION
 # =============================================================================
 automation:
-  enabled: false  # Enabled for production
+  enabled: true  # Enabled for production
   interval_seconds: 60
   script_path: "/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/requestPicker.sh"
   script_timeout_seconds: 300

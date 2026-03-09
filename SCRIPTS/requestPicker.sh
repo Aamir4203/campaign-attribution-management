@@ -25,7 +25,7 @@ if [[ $? -ne 0 ]]; then
 fi
 
 # Check if we can pick new requests (limit to 10 running requests)
-if [[ $running_request_count -lt 11 ]]; then
+if [[ $running_request_count -lt 8 ]]; then
 
     # Pick next request in queue
     new_request_id=$($CONNECTION_STRING -qtAX -c \

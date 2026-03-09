@@ -8,11 +8,27 @@ from datetime import datetime, timedelta
 import logging
 import subprocess
 import os
+import re
 from db import get_db_connection, release_db_connection
 from config.config import get_config
 
 logger = logging.getLogger(__name__)
 config = get_config()
+
+
+def normalize_query(raw_query):
+    """
+    Normalize a user-submitted SQL query for PostgreSQL/Snowflake compatibility.
+    - ''value'' → 'value'  (unescape doubled single-quotes)
+    - 'value'   → 'value'  (plain single-quotes preserved as string literals)
+    - AS 'alias' → AS "alias"  (single-quoted aliases converted to double-quoted,
+                                 since Snowflake rejects single-quoted identifiers)
+    """
+    if not raw_query:
+        return None
+    q = raw_query.replace("''", "'")
+    q = re.sub(r"\bAS\s+'([^']+)'", r'AS "\1"', q, flags=re.IGNORECASE)
+    return q
 
 # Create blueprint
 request_bp = Blueprint('request', __name__)
@@ -241,9 +257,7 @@ def submit_form():
             except (ValueError, TypeError):
                 priority_file_per = None
 
-        # Normalize query: replace doubled single-quotes (user escape convention) with single quotes
-        raw_query = data.get('input_query') or ''
-        normalized_query = raw_query.replace("''", "'") if raw_query else None
+        normalized_query = normalize_query(data.get('input_query') or '')
 
         # Insert into postback request details table
         requests_table = config.get_table_name('requests')
@@ -391,9 +405,7 @@ def add_request():
 
         client_id = client_result[0]
 
-        # Normalize query: replace doubled single-quotes (user escape convention) with single quotes
-        raw_query = converted_data.get('input_query') or ''
-        normalized_query = raw_query.replace("''", "'") if raw_query else None
+        normalized_query = normalize_query(converted_data.get('input_query') or '')
 
         # Insert into requests table
         requests_table = config.get_table_name('requests')
@@ -556,9 +568,8 @@ def update_request(request_id):
         for frontend_field, db_column in field_mapping.items():
             if frontend_field in data and data[frontend_field] is not None:
                 value = data[frontend_field]
-                # Normalize query field: replace doubled single-quotes with single quotes
                 if db_column == 'query' and isinstance(value, str):
-                    value = value.replace("''", "'")
+                    value = normalize_query(value)
                 update_fields.append(f"{db_column} = %s")
                 update_values.append(value)
                 logger.info(f"   📝 Updating {db_column}: {value}")
@@ -598,6 +609,10 @@ def update_request(request_id):
                 "request_start_time = NOW()"
             ])
             update_values.extend([new_status, description, request_id])
+        elif current_status == 'C':
+            new_status = 'RW'
+            description = f"Request updated and queued for rework from {rerun_module} module"
+            logger.info(f"   ℹ️ Current status is C (Completed) — setting status RW, error_code {error_code}")
         else:
             new_status = 'RE'
             description = f"Request updated and queued for rerun from {rerun_module} module"

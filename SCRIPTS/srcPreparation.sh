@@ -11,7 +11,7 @@ echo "MODULE4 Start Time: `date`"
 # PostgreSQL session settings - prepended to multi-table JOIN queries
 # IMPORTANT: Each psql -c is a new session, so settings MUST be in same command as query
 #PG_SESSION_SETTINGS="SET work_mem = '512MB'; SET enable_nestloop = off; SET hash_mem_multiplier = 2.0; SET effective_cache_size = '160GB'; SET random_page_cost = 1.1; SET seq_page_cost = 1.0; SET effective_io_concurrency = 200;"
-PG_SESSION_SETTINGS="SET work_mem = '4GB'; SET enable_nestloop = off; SET hash_mem_multiplier = 1.0; SET effective_cache_size = '160GB'; SET random_page_cost = 1.1; SET seq_page_cost = 1.0; SET effective_io_concurrency = 200; SET synchronous_commit = off;"
+PG_SESSION_SETTINGS="SET work_mem = '10GB'; SET enable_nestloop = off; SET hash_mem_multiplier = 1.0; SET effective_cache_size = '160GB'; SET random_page_cost = 1.1; SET seq_page_cost = 1.0; SET effective_io_concurrency = 200; SET synchronous_commit = off;"
 
 echo "PostgreSQL optimization settings: $PG_SESSION_SETTINGS"
 
