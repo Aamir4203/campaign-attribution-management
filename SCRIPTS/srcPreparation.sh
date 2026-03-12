@@ -11,7 +11,7 @@ echo "MODULE4 Start Time: `date`"
 # PostgreSQL session settings - prepended to multi-table JOIN queries
 # IMPORTANT: Each psql -c is a new session, so settings MUST be in same command as query
 #PG_SESSION_SETTINGS="SET work_mem = '512MB'; SET enable_nestloop = off; SET hash_mem_multiplier = 2.0; SET effective_cache_size = '160GB'; SET random_page_cost = 1.1; SET seq_page_cost = 1.0; SET effective_io_concurrency = 200;"
-PG_SESSION_SETTINGS="SET work_mem = '10GB'; SET enable_nestloop = off; SET hash_mem_multiplier = 1.0; SET effective_cache_size = '160GB'; SET random_page_cost = 1.1; SET seq_page_cost = 1.0; SET effective_io_concurrency = 200; SET synchronous_commit = off;"
+PG_SESSION_SETTINGS="SET work_mem = '4GB'; SET enable_nestloop = off; SET hash_mem_multiplier = 1.0; SET effective_cache_size = '160GB'; SET random_page_cost = 1.1; SET seq_page_cost = 1.0; SET effective_io_concurrency = 200; SET synchronous_commit = off;"
 
 echo "PostgreSQL optimization settings: $PG_SESSION_SETTINGS"
 
@@ -211,7 +211,7 @@ then
 
 else
 
-        include_hards_status=" left join $HARDS_TABLE h on a.email=h.email where h.email is null and  "
+        include_hards_status=" where NOT EXISTS (SELECT 1 FROM $HARDS_TABLE h WHERE h.email = a.email) and  "
 
 fi
 
@@ -342,7 +342,7 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
                         then
 
                                 # HARDS insert with HARDS_TABLE join - with session optimization settings
-                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email join  $HARDS_TABLE d on a.email=d.email where c.email is null and b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg' ) insert into $SRC_TABLE($trt_header,freq,status,flag) select  * from cte limit $req_cnt on conflict do nothing"
+                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $OLD_DATA c on a.email=c.email join $HARDS_TABLE d on a.email=d.email where c.email is null and NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) and a.segment='$hard_seg' and a.subseg='$hard_subseg' ) insert into $SRC_TABLE($trt_header,freq,status,flag) select * from cte limit $req_cnt on conflict do nothing"
 
                                 if [[ $? -ne 0 ]]
                                 then
@@ -378,7 +378,7 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
                         then
 
                                 # HARDS deficit fill - with session optimization settings
-                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email  where  b.email is null and a.segment='$hard_seg' and a.subseg='$hard_subseg'  ) insert into $SRC_TABLE($trt_header,freq,status,flag) select * from cte order by trt_freq desc limit $req_cnt on conflict do nothing"
+                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq,-1,'B' from $TRT_TABLE a left join $OLD_DATA c on a.email=c.email where NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) and a.segment='$hard_seg' and a.subseg='$hard_subseg' ) insert into $SRC_TABLE($trt_header,freq,status,flag) select * from cte order by trt_freq desc limit $req_cnt on conflict do nothing"
 
                                 if [[ $? -ne 0 ]]
                                 then
@@ -461,7 +461,7 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
 
                         # OLD frequency inserts - with session optimization settings
                         #$CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile'  ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte order by trt_freq $priority_order limit $req_old"
-                        $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq  $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_old;"
+                        $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq $priority_order LIMIT $req_old) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked;"
 
                         if [[ $? -ne 0 ]]
                         then
@@ -482,7 +482,7 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
 
                                 # NEW frequency inserts - with session optimization settings (fixes 2hr+ query)
                                 #$CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email  left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile' ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte order by trt_freq desc  $priority_order  limit $req_new "
-                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_new;"
+                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC $priority_order LIMIT $req_new) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked;"
                         if [[ $? -ne 0 ]]
                         then
 
@@ -535,7 +535,7 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
 
                                 # Deficit inserts - with session optimization settings
                                 #$CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS with cte as ( select a.*,(case when c.email is not null then 0 else 1 end) trt_freq from $TRT_TABLE a left join $SRC_TABLE b on a.email=b.email left join $OLD_DATA c on a.email=c.email $include_hards_status b.email is null and a.segment='$cpm_seg' and a.subseg='$cpm_subseg' and a.decile='$cpm_decile' ) insert into $SRC_TABLE($trt_header,freq) select $select_ver * from cte order by trt_freq desc $priority_order limit $req_cnt"
-                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC $priority_order ) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked LIMIT $req_cnt;"
+                                $CONNECTION_STRING -vv -c "$PG_SESSION_SETTINGS WITH candidates AS (SELECT a.*, CASE WHEN c.email IS NOT NULL THEN 0 ELSE 1 END AS trt_freq FROM $TRT_TABLE a LEFT JOIN $OLD_DATA c ON a.email = c.email $include_hards_status NOT EXISTS (SELECT 1 FROM $SRC_TABLE b WHERE b.email = a.email) AND a.segment = '$cpm_seg' AND a.subseg = '$cpm_subseg' AND a.decile = '$cpm_decile'), ranked AS (SELECT * FROM candidates a ORDER BY trt_freq DESC $priority_order LIMIT $req_cnt) INSERT INTO $SRC_TABLE($trt_header, freq) SELECT $select_ver * FROM ranked;"
                                 if [[ $? -ne 0 ]]
                                 then
 
@@ -746,8 +746,6 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
 
 
                 fi
-                $CONNECTION_STRING -vv -c "ANALYZE $SRC_TABLE"
-
 
         done <$SPOOLPATH/deldate_counts
         $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
@@ -872,9 +870,6 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
                                         fi
 
                                 fi
-                                $CONNECTION_STRING -vv -c "ANALYZE $SRC_TABLE"
-
-
 
                         done <$decile_file
                         $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
@@ -1000,7 +995,6 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
 
 
                                 fi
-                        $CONNECTION_STRING -vv -c "ANALYZE $SRC_TABLE"
 
                         done <$SPOOLPATH/deldate_counts
                         $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
@@ -1131,8 +1125,6 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
 
 
                                 fi
-                                $CONNECTION_STRING -vv -c "ANALYZE $SRC_TABLE"
-
 
                         done <$decile_file
                         $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"
@@ -1203,10 +1195,6 @@ $CONNECTION_STRING -vv -c "ANALYZE $HARDS_TABLE"
                                                 fi
 
                                 fi
-                                $CONNECTION_STRING -vv -c "ANALYZE $SRC_TABLE"
-
-
-
 
                         done <$SPOOLPATH/deldate_wise_counts
                         $CONNECTION_STRING -vv -c "vacuum analyze $SRC_TABLE"

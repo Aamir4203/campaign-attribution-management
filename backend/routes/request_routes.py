@@ -154,6 +154,8 @@ def get_requests():
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching requests: {e}")
         return jsonify({
             'success': False,
@@ -327,6 +329,8 @@ def submit_form():
             }), 500
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error submitting form: {str(e)}")
         return jsonify({
             'success': False,
@@ -337,6 +341,7 @@ def submit_form():
 @request_bp.route('/add_request', methods=['POST'])
 def add_request():
     """Add new campaign attribution request - modern API endpoint"""
+    conn = None
     try:
         data = request.get_json()
 
@@ -462,6 +467,8 @@ def add_request():
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error in add_request: {str(e)}")
         return jsonify({
             'success': False,
@@ -613,6 +620,14 @@ def update_request(request_id):
             new_status = 'RW'
             description = f"Request updated and queued for rework from {rerun_module} module"
             logger.info(f"   ℹ️ Current status is C (Completed) — setting status RW, error_code {error_code}")
+            update_fields.extend([
+                "request_status = %s",
+                "error_code = %s",
+                "request_validation = NULL",
+                "request_desc = %s",
+                "request_start_time = NOW()"
+            ])
+            update_values.extend([new_status, error_code, description, request_id])
         else:
             new_status = 'RE'
             description = f"Request updated and queued for rerun from {rerun_module} module"
@@ -663,6 +678,8 @@ def update_request(request_id):
     except Exception as e:
         logger.error(f"❌ Exception during request update: {e}", exc_info=True)
         logger.info("=" * 80)
+        if conn:
+            release_db_connection(conn)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -765,6 +782,8 @@ def get_request_details(request_id):
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching request details: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -880,6 +899,8 @@ def get_request_stats(request_id):
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching request stats: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -993,6 +1014,8 @@ def download_request_stats(request_id):
         return response
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error downloading request stats: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1001,7 +1024,7 @@ def download_request_stats(request_id):
 def download_request_metrics(request_id):
     """Download metrics with custom or standard queries"""
     logger.info(f"📊 Download metrics endpoint called for request ID: {request_id}")
-
+    conn = None
     try:
         import pandas as pd
         from io import BytesIO
@@ -1069,6 +1092,8 @@ def download_request_metrics(request_id):
         return response
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"❌ Error downloading metrics: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1077,7 +1102,7 @@ def download_request_metrics(request_id):
 def rerun_request(request_id):
     """Trigger rerun for a specific request with module selection"""
     logger.info(f"🔄 Rerun request endpoint called for ID: {request_id}")
-
+    conn = None
     try:
         data = request.get_json()
         rerun_module = data.get('rerun_type', 'TRT')
@@ -1104,37 +1129,50 @@ def rerun_request(request_id):
         cursor = conn.cursor()
         requests_table = config.get_table_name('requests')
 
-        # Update request with RE status, error_code for module, and reset validation
+        # Check current status: completed requests need RW (undo-completed cleanup)
+        cursor.execute(
+            f"SELECT request_status FROM {requests_table} WHERE request_id = %s",
+            (request_id,)
+        )
+        status_row = cursor.fetchone()
+        if not status_row:
+            cursor.close()
+            release_db_connection(conn)
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
+
+        current_status = status_row[0].upper() if status_row[0] else ''
+        if current_status == 'C':
+            new_status = 'RW'
+            description = f"Rework requested for {rerun_module} module"
+        else:
+            new_status = 'RE'
+            description = f"ReRun requested for {rerun_module} module"
+
         update_query = f"""
         UPDATE {requests_table}
-        SET request_status = 'RE',
+        SET request_status = %s,
             error_code = %s,
             request_validation = NULL,
             request_desc = %s,
             request_start_time = NOW()
         WHERE request_id = %s
         """
-
-        description = f"ReRun requested for {rerun_module} module"
-        cursor.execute(update_query, (error_code, description, request_id))
-
-        if cursor.rowcount == 0:
-            cursor.close()
-            release_db_connection(conn)
-            return jsonify({'success': False, 'error': 'Request not found'}), 404
+        cursor.execute(update_query, (new_status, error_code, description, request_id))
 
         conn.commit()
         cursor.close()
         release_db_connection(conn)
 
-        logger.info(f"✅ Request {request_id} marked for rerun - Module: {rerun_module} (Error Code: {error_code})")
+        logger.info(f"✅ Request {request_id} marked for {new_status} - Module: {rerun_module} (Error Code: {error_code})")
 
         return jsonify({
             'success': True,
-            'message': f'Request {request_id} marked for rerun - {rerun_module} module'
+            'message': f'Request {request_id} marked for {new_status} - {rerun_module} module'
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"❌ Error during rerun: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1284,6 +1322,8 @@ def kill_request(request_id):
             'retry_available': True
         }), 500
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error during kill request: {e}")
         return jsonify({
             'success': False,
@@ -1346,6 +1386,8 @@ def get_status_counts():
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching status counts: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1384,6 +1426,8 @@ def get_client_name(request_id):
             return jsonify({'success': False, 'error': 'Request not found'}), 404
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching client name: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1420,5 +1464,7 @@ def get_week(request_id):
             return jsonify({'success': False, 'error': 'Request not found'}), 404
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching week: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

@@ -7,6 +7,8 @@ from flask import Blueprint, jsonify, request
 from datetime import datetime
 import logging
 import time
+import subprocess
+import re
 from db import get_db_connection, release_db_connection
 from config.config import get_config
 
@@ -453,6 +455,160 @@ def run_health_check():
 
     except Exception as e:
         logger.error(f"Error running health check: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _parse_uptime(line):
+    """Extract load averages from uptime output line."""
+    match = re.search(r'load average[s]?:\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)', line)
+    if match:
+        return float(match.group(1)), float(match.group(2)), float(match.group(3))
+    return 0.0, 0.0, 0.0
+
+
+def _parse_free(mem_line):
+    """Parse 'Mem:' line from free -m output."""
+    parts = mem_line.split()
+    # parts: Mem: total used free shared buff/cache available
+    try:
+        total = int(parts[1])
+        used = int(parts[2])
+        available = int(parts[6])
+        ram_percent = round(used / total * 100, 1) if total > 0 else 0.0
+        return total, used, available, ram_percent
+    except (IndexError, ValueError):
+        return 0, 0, 0, 0.0
+
+
+def _parse_df(df_output):
+    """Parse df -h output for /u1 and /u1/techteam mounts.
+
+    Parses right-to-left to handle long NFS device names.
+    Returns (db_space, disk_space) dicts.
+    """
+    db_space = {'total': '-', 'used': '-', 'available': '-', 'percent': 0}
+    disk_space = {'total': '-', 'used': '-', 'available': '-', 'percent': 0}
+
+    for line in df_output.strip().splitlines():
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+        mount = parts[-1]
+        try:
+            pct_str = parts[-2].rstrip('%')
+            pct = int(pct_str)
+            avail = parts[-3]
+            used = parts[-4]
+            total = parts[-5]
+        except (IndexError, ValueError):
+            continue
+
+        entry = {'total': total, 'used': used, 'available': avail, 'percent': pct}
+        if mount == '/u1':
+            db_space = entry
+        elif mount == '/u1/techteam':
+            disk_space = entry
+
+    return db_space, disk_space
+
+
+def _collect_app_server_stats():
+    """Collect load, RAM, and CPU count from the local (app) server."""
+    result = {
+        'hostname': 'pgdb03-01',
+        'load_1': 0.0, 'load_5': 0.0, 'load_15': 0.0,
+        'cpu_cores': 1,
+        'ram_total_mb': 0, 'ram_used_mb': 0, 'ram_available_mb': 0, 'ram_percent': 0.0
+    }
+    try:
+        proc = subprocess.run(
+            ['bash', '-c', 'uptime && free -m && nproc'],
+            capture_output=True, text=True, timeout=10
+        )
+        lines = proc.stdout.strip().splitlines()
+        if lines:
+            result['load_1'], result['load_5'], result['load_15'] = _parse_uptime(lines[0])
+        # free -m: header on lines[1], Mem: on lines[2]
+        for line in lines:
+            if line.strip().startswith('Mem:'):
+                t, u, a, pct = _parse_free(line)
+                result['ram_total_mb'] = t
+                result['ram_used_mb'] = u
+                result['ram_available_mb'] = a
+                result['ram_percent'] = pct
+                break
+        # nproc is last line
+        try:
+            result['cpu_cores'] = int(lines[-1].strip())
+        except (ValueError, IndexError):
+            pass
+    except Exception as e:
+        logger.warning(f"App server stats error: {e}")
+    return result
+
+
+def _collect_db_server_stats():
+    """Collect stats from the DB server via SSH."""
+    result = {
+        'reachable': False,
+        'hostname': 'pgdb01-01',
+        'load_1': 0.0, 'load_5': 0.0, 'load_15': 0.0,
+        'cpu_cores': 1,
+        'ram_total_mb': 0, 'ram_used_mb': 0, 'ram_available_mb': 0, 'ram_percent': 0.0,
+        'db_space': {'total': '-', 'used': '-', 'available': '-', 'percent': 0},
+        'disk_space': {'total': '-', 'used': '-', 'available': '-', 'percent': 0}
+    }
+    try:
+        proc = subprocess.run(
+            ['ssh', '-o', 'ConnectTimeout=8', '-o', 'StrictHostKeyChecking=no',
+             'techteam@zds-prod-pgdb01-01',
+             "df -h | grep -E '/u1$|/u1/techteam$' && echo '---' && uptime && free -m && nproc"],
+            capture_output=True, text=True, timeout=15
+        )
+        if proc.returncode != 0 and not proc.stdout.strip():
+            return result
+
+        parts = proc.stdout.split('---', 1)
+        df_section = parts[0].strip()
+        sys_section = parts[1].strip() if len(parts) > 1 else ''
+
+        db_space, disk_space = _parse_df(df_section)
+        result['db_space'] = db_space
+        result['disk_space'] = disk_space
+
+        sys_lines = sys_section.splitlines()
+        for line in sys_lines:
+            if 'load average' in line:
+                result['load_1'], result['load_5'], result['load_15'] = _parse_uptime(line)
+            if line.strip().startswith('Mem:'):
+                t, u, a, pct = _parse_free(line)
+                result['ram_total_mb'] = t
+                result['ram_used_mb'] = u
+                result['ram_available_mb'] = a
+                result['ram_percent'] = pct
+        try:
+            result['cpu_cores'] = int(sys_lines[-1].strip())
+        except (ValueError, IndexError):
+            pass
+
+        result['reachable'] = True
+    except Exception as e:
+        logger.warning(f"DB server stats error: {e}")
+    return result
+
+
+@dashboard_bp.route('/api/dashboard/server-stats', methods=['GET'])
+def get_server_stats():
+    """Return real-time load and disk metrics for app and DB servers."""
+    try:
+        return jsonify({
+            'success': True,
+            'app_server': _collect_app_server_stats(),
+            'db_server': _collect_db_server_stats(),
+            'fetched_at': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error fetching server stats: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

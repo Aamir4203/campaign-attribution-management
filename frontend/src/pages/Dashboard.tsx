@@ -37,6 +37,86 @@ interface Alert {
   description?: string;
 }
 
+interface DiskSpace {
+  total: string;
+  used: string;
+  available: string;
+  percent: number;
+}
+
+interface ServerInfo {
+  hostname: string;
+  load_1: number;
+  load_5: number;
+  load_15: number;
+  cpu_cores: number;
+  ram_total_mb: number;
+  ram_used_mb: number;
+  ram_available_mb: number;
+  ram_percent: number;
+}
+
+interface DbServerInfo extends ServerInfo {
+  reachable: boolean;
+  db_space: DiskSpace;
+  disk_space: DiskSpace;
+}
+
+interface ServerStatsData {
+  success: boolean;
+  app_server: ServerInfo;
+  db_server: DbServerInfo;
+  fetched_at: string;
+}
+
+const formatMB = (mb: number): string => {
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)}G`;
+  return `${mb}M`;
+};
+
+const getLoadColor = (load: number, cores: number): string => {
+  const ratio = load / Math.max(cores, 1);
+  if (ratio >= 0.9) return 'text-red-600';
+  if (ratio >= 0.5) return 'text-yellow-600';
+  return 'text-green-600';
+};
+
+const getPercentColor = (pct: number): string => {
+  if (pct > 85) return 'text-red-600';
+  if (pct >= 70) return 'text-yellow-600';
+  return 'text-green-600';
+};
+
+const getBarColor = (pct: number): string => {
+  if (pct > 85) return 'bg-red-500';
+  if (pct >= 70) return 'bg-yellow-500';
+  return 'bg-green-500';
+};
+
+const ServerMetric: React.FC<{ label: string; value: string; colorClass: string; sub?: string }> = ({ label, value, colorClass, sub }) => (
+  <div className="bg-gray-50 rounded p-3">
+    <p className="text-xs text-gray-500 mb-1">{label}</p>
+    <p className={`text-lg font-bold ${colorClass}`}>{value}</p>
+    {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+  </div>
+);
+
+const DiskBar: React.FC<{ label: string; space: DiskSpace }> = ({ label, space }) => (
+  <div className="mt-3">
+    <div className="flex justify-between items-center mb-1">
+      <span className="text-xs text-gray-600">{label}</span>
+      <span className={`text-xs font-semibold ${getPercentColor(space.percent)}`}>{space.percent}%</span>
+    </div>
+    <div className="w-full bg-gray-200 rounded-full h-2">
+      <div
+        className={`h-2 rounded-full ${getBarColor(space.percent)}`}
+        style={{ width: `${Math.min(space.percent, 100)}%` }}
+      />
+    </div>
+    <p className="text-xs text-gray-400 mt-1">{space.used} used / {space.available} free of {space.total}</p>
+  </div>
+);
+
 const Dashboard: React.FC = () => {
   let username = 'User';
 
@@ -67,6 +147,7 @@ const Dashboard: React.FC = () => {
   const [isUserActivityExpanded, setIsUserActivityExpanded] = useState(false);
   const [userActivityViewMode, setUserActivityViewMode] = useState<'list' | 'chart'>('list');
   const [chartLoading, setChartLoading] = useState(false);
+  const [serverStats, setServerStats] = useState<ServerStatsData | null>(null);
 
   const fetchDashboardData = async () => {
     try {
@@ -160,6 +241,12 @@ const Dashboard: React.FC = () => {
       }
 
       setLastUpdated(new Date());
+
+      // Fire-and-forget server stats — SSH can take up to 15s; don't block dashboard load
+      setServerStats(null);
+      api.get('/api/dashboard/server-stats')
+        .then(res => { if (res.data.success) setServerStats(res.data); })
+        .catch(() => setServerStats(null));
     } catch (err: any) {
       console.error('Dashboard API error:', err);
       setError('Unable to load dashboard data - using fallback');
@@ -372,39 +459,92 @@ const Dashboard: React.FC = () => {
           )}
         </div>
 
-        {/* Health Check */}
+        {/* Server Health */}
         <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">🔍 Health Check</h3>
-          <button
-            onClick={async () => {
-              try {
-                const response = await api.post('/api/dashboard/health-check');
-                if (response.data.success) {
-                  const results = response.data.health_check;
-                  let message = '✅ System Health Check Complete!\n\n';
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Server Health</h3>
+            <button
+              onClick={() => {
+                setServerStats(null);
+                api.get('/api/dashboard/server-stats')
+                  .then(res => { if (res.data.success) setServerStats(res.data); })
+                  .catch(() => setServerStats(null));
+              }}
+              className="text-sm text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1"
+            >
+              ↻ Refresh
+            </button>
+          </div>
 
-                  if (results.database?.status === 'healthy') {
-                    message += `• Database: ✅ Connected (${results.database.version?.split(' ')[0] || 'PostgreSQL'})\n`;
-                  } else {
-                    message += `• Database: ❌ ${results.database?.error || 'Failed'}\n`;
-                  }
+          {serverStats === null ? (
+            <div className="flex items-center justify-center py-8 text-gray-400">
+              <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin mr-2"></div>
+              <span className="text-sm">Loading server stats...</span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* App Server */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  App Server (pgdb03-01)
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <ServerMetric
+                    label="CPU Load (1m)"
+                    value={serverStats.app_server.load_1.toFixed(2)}
+                    colorClass={getLoadColor(serverStats.app_server.load_1, serverStats.app_server.cpu_cores)}
+                    sub={`${serverStats.app_server.cpu_cores} cores`}
+                  />
+                  <ServerMetric
+                    label="RAM Used"
+                    value={`${serverStats.app_server.ram_percent}%`}
+                    colorClass={getPercentColor(serverStats.app_server.ram_percent)}
+                    sub={`${formatMB(serverStats.app_server.ram_used_mb)} / ${formatMB(serverStats.app_server.ram_total_mb)}`}
+                  />
+                </div>
+              </div>
 
-                  message += `• API: ✅ ${results.api_endpoints?.status || 'Healthy'}\n`;
-                  message += `• Queue: ✅ ${results.processing_queue?.status || 'Operational'} (${results.processing_queue?.total_requests || 0} total requests)\n`;
-                  message += `• Frontend: ✅ Working`;
+              {/* DB Server */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    DB Server (pgdb01-01)
+                  </p>
+                  {!serverStats.db_server.reachable && (
+                    <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">
+                      Unreachable
+                    </span>
+                  )}
+                </div>
+                {serverStats.db_server.reachable ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <ServerMetric
+                        label="CPU Load (1m)"
+                        value={serverStats.db_server.load_1.toFixed(2)}
+                        colorClass={getLoadColor(serverStats.db_server.load_1, serverStats.db_server.cpu_cores)}
+                        sub={`${serverStats.db_server.cpu_cores} cores`}
+                      />
+                      <ServerMetric
+                        label="RAM Used"
+                        value={`${serverStats.db_server.ram_percent}%`}
+                        colorClass={getPercentColor(serverStats.db_server.ram_percent)}
+                        sub={`${formatMB(serverStats.db_server.ram_used_mb)} / ${formatMB(serverStats.db_server.ram_total_mb)}`}
+                      />
+                    </div>
+                    <DiskBar label="DB Space (/u1)" space={serverStats.db_server.db_space} />
+                    <DiskBar label="Disk Space (/u1/techteam)" space={serverStats.db_server.disk_space} />
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-400 italic">Could not reach DB server via SSH.</p>
+                )}
+              </div>
 
-                  alert(message);
-                } else {
-                  alert('❌ Health Check Failed!\n\nSystem diagnostics returned errors.');
-                }
-              } catch (err) {
-                alert('❌ Health Check Failed!\n\nUnable to complete system diagnostics.\n\nThis may indicate backend connectivity issues.');
-              }
-            }}
-            className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-          >
-            🔍 Run Health Check
-          </button>
+              <p className="text-xs text-gray-400 text-right">
+                Stats as of {new Date(serverStats.fetched_at + 'Z').toLocaleTimeString()}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

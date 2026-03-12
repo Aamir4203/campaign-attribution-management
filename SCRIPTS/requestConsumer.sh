@@ -88,69 +88,57 @@ then
     setup_request_environment "$new_request_id"
     sh -x "$SCRIPTPATH/trtPreparation.sh" "$new_request_id" >>"$HOMEPATH/LOGS/${new_request_id}.log" 2>&1
 
-elif [[ $new_request_status == 'RW' ]]
+elif [[ $new_request_status == 'RE' || $new_request_status == 'RW' ]]
 then
-    if [ -d "$HOMEPATH" ]
-    then
-        pb_table=`$CONNECTION_STRING -qtAX -c "select prev_week_pb_table from $REQUEST_TABLE a join $CLIENT_TABLE b on a.CLIENT_ID=b.CLIENT_ID  where  a.REQUEST_ID=$new_request_id"`
-        $CONNECTION_STRING -vv -c "delete from  $POSTED_UNSUB_HARDS_TABLE a using $pb_table b where b.unsub_date is not null and a.email=b.email"
+    # Fallback: if working directory is missing, run fresh setup from TRT
+    if [ ! -d "$HOMEPATH" ]; then
+        echo "Working directory missing for $new_request_status request $new_request_id — running setup and restarting from step 1"
+        # For RW: undo completed state before fresh start
+        if [[ $new_request_status == 'RW' ]]; then
+            pb_table=`$CONNECTION_STRING -qtAX -c "select prev_week_pb_table from $REQUEST_TABLE a join $CLIENT_TABLE b on a.CLIENT_ID=b.CLIENT_ID where a.REQUEST_ID=$new_request_id"`
+            if [ -n "$pb_table" ]; then
+                $CONNECTION_STRING -vv -c "delete from $POSTED_UNSUB_HARDS_TABLE a using $pb_table b where b.unsub_date is not null and a.email=b.email"
+            fi
+            $CONNECTION_STRING -vv -c "update $CLIENT_TABLE set prev_week_pb_table=bkp_prev_pb_table where client_name='$CLIENT_NAME'"
+        fi
+        setup_request_environment "$new_request_id"
+        sh -x "$SCRIPTPATH/trtPreparation.sh" "$new_request_id" >>"$HOMEPATH/LOGS/${new_request_id}.log" 2>&1
+        exit $?
+    fi
+
+    request_error_code=`$CONNECTION_STRING -qtAX -c "select error_code from $REQUEST_TABLE where request_id=$new_request_id"`
+    report_path=`$CONNECTION_STRING -qtAX -c "select CPM_REPORT_PATH from $REQUEST_TABLE where REQUEST_ID=$new_request_id"`
+
+    # RW-only: undo completed state (always — for ALL error codes)
+    if [[ $new_request_status == 'RW' ]]; then
+        pb_table=`$CONNECTION_STRING -qtAX -c "select prev_week_pb_table from $REQUEST_TABLE a join $CLIENT_TABLE b on a.CLIENT_ID=b.CLIENT_ID where a.REQUEST_ID=$new_request_id"`
+        $CONNECTION_STRING -vv -c "delete from $POSTED_UNSUB_HARDS_TABLE a using $pb_table b where b.unsub_date is not null and a.email=b.email"
 
         if [[ $? -ne 0 ]]
         then
             echo -e " Hi Team, \n Unable to delete from client unsub table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " $ALERT_TO
-            $CONNECTION_STRING -vv -c "update $REQUEST_TABLE set request_status='E',request_desc='Unable to delete unsubs from client table' where request_id=$new_request_id "
+            $CONNECTION_STRING -vv -c "update $REQUEST_TABLE set request_status='E',request_desc='Unable to delete unsubs from client table' where request_id=$new_request_id"
             exit
         fi
 
-        rm -rf "$HOMEPATH"
-
-        $CONNECTION_STRING -vv -c "drop table if exists $TRT_TABLE , $ARCA_GENUINE_DEL_TEMP , $GREEN_DELIVERED_TEMP, $GREEN_OPENS_TEMP , $GREEN_CLICKS_TEMP , $GREEN_UNSUBS_TEMP , $GREEN_FINAL_TEMP , $ORANGE_GENUNIE_DELIVERED ,$ORANGE_DEPLOY_IDS_TABLE , $ORANGE_GENUINE_DEL_TEMP , $GREEN_TOTAL_UNSUBS_TEMP , $SUPP_TABLE,$PARTITION_SRC ,  $SRC_TABLE, $UNIQ_SRC_TABLE , $PB_TABLE , $REPORT_TABLE , $DECILE_TABLE , $UNIQ_GEN_TABLE , $REPLACE_IP_TABLE , $REPLACE_TIMESTAMP_TABLE"
-
-        $PGDB2_CONN_STRING -vv -c "drop table if exists $ARCA_GENUINE_DEL_TEMP"
-
-        $CONNECTION_STRING -vv -c "update $CLIENT_TABLE set prev_week_pb_table=bkp_prev_pb_table where client_name='$CLIENT_NAME' "
+        $CONNECTION_STRING -vv -c "update $CLIENT_TABLE set prev_week_pb_table=bkp_prev_pb_table where client_name='$CLIENT_NAME'"
 
         if [[ $? -ne 0 ]]
         then
             echo -e " Hi Team, \n Unable to update client table for re-work. \n\n Thanks, \n SysAdmin" | mail -r "$ALERT_SENDER" -s "APT REQUEST DETAILS :: $CLIENT_NAME " $ALERT_TO
             exit
         fi
-
-        setup_request_environment "$new_request_id"
-        sh -x "$SCRIPTPATH/trtPreparation.sh" "$new_request_id" >>"$HOMEPATH/LOGS/${new_request_id}.log" 2>&1
     fi
-
-elif [[ $new_request_status == 'RE' ]]
-then
-    # If the working directory doesn't exist (e.g. request was cancelled before
-    # setup completed, or came from W+N → cancel → re-run), treat as fresh start
-    if [ ! -d "$HOMEPATH" ]; then
-        echo "Working directory missing for RE request $new_request_id — running setup and restarting from step 1"
-        setup_request_environment "$new_request_id"
-        sh -x "$SCRIPTPATH/trtPreparation.sh" "$new_request_id" >>"$HOMEPATH/LOGS/${new_request_id}.log" 2>&1
-        exit $?
-    fi
-
-    request_error_code=`$CONNECTION_STRING -qtAX -c "select error_code from $REQUEST_TABLE where request_id=$new_request_id "`
-
-    request_status=`$CONNECTION_STRING -qtAX -c "select upper(request_status) from  $REQUEST_TABLE where REQUEST_ID=$new_request_id"`
-
-    report_path=`$CONNECTION_STRING -qtAX -c "select CPM_REPORT_PATH from  $REQUEST_TABLE where REQUEST_ID=$new_request_id"`
-
 
     $CONNECTION_STRING -vv -c "update $REQUEST_TABLE SET REQUEST_START_TIME=now() :: timestamp(0) , REQUEST_STATUS='R' where REQUEST_ID=$new_request_id"
 
-
     $CONNECTION_STRING -vv -c "drop table if exists $REPORT_TABLE"
-
     $CONNECTION_STRING -vv -c "create table IF NOT EXISTS $REPORT_TABLE(CAMPAIGN VARCHAR , DEL_DATE VARCHAR , DEL_COUNT int , OPEN_COUNT int , CLICK_COUNT int ,UNSUB_COUNT int , SOFT_COUNT int , HARD_COUNT int , SUBJECT VARCHAR , CREATIVE VARCHAR ,CREATIVEID VARCHAR , OFFERID VARCHAR , SEGMENT VARCHAR ,SUB_SEG VARCHAR)"
 
     if [[ $subseg == 'Y' ]]
     then
         $CONNECTION_STRING -vv -c "\copy $REPORT_TABLE from '$report_path' with delimiter '|'"
     fi
-
-
 
     if [[ $request_error_code == '1' ]]
     then

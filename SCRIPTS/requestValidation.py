@@ -294,7 +294,7 @@ def validate_rltp_id_uniqueness(current_rltp_ids, client_id, engine, weekly_new_
             WHERE client_id={client_id}
             AND request_status='C'
             ORDER BY request_id DESC
-            LIMIT 1 OFFSET 1
+            LIMIT 1
         """
 
         prev_df = pd.read_sql(prev_query, con=engine)
@@ -401,11 +401,19 @@ def validate_residual_date(residual_date, cpm_report_path):
         return
 
     try:
-        # Read CPM report to get max date
-        cpm_df = pd.read_csv(cpm_report_path, sep="|", header=0)
+        # Read CPM report to get max date (no header row in file)
+        cpm_df = pd.read_csv(cpm_report_path, sep="|", header=None)
 
-        # Column 1 is the date column
-        max_cpm_date = pd.to_datetime(cpm_df.iloc[:, 1]).max()
+        # Column index 1 is the date column
+        max_cpm_date = pd.to_datetime(cpm_df.iloc[:, 1], errors='coerce').max()
+
+        if pd.isna(max_cpm_date):
+            add_validation("Residual Date", "Failed")
+            raise ValidationError(
+                "CPM report date column contains null/invalid values",
+                f"All values in date column (col index 1) of {cpm_report_path} are null or unparseable"
+            )
+
         residual_dt = pd.to_datetime(residual_date)
 
         if residual_dt >= max_cpm_date:

@@ -160,6 +160,6 @@ backend/REPORT_FILES/
 # Snowflake private keys
 backend/.snowflake/
 *.p8
-
+.claude
 # Request processing working directory
 REQUEST_PROCESSING/
