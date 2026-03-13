@@ -614,12 +614,6 @@ rm -rf .git  # Remove git tracking for production
 python3 -m venv CAM_Env
 source CAM_Env/bin/activate
 pip3 install -r requirements.txt
-
-# Frontend
-cd frontend
-npm install
-npm run build
-cd ..
 ```
 
 3. **Setup Snowflake RSA Keys**
@@ -638,63 +632,99 @@ cp /path/to/your/audit_key.p8 backend/.snowflake/lpt_rsa_key.p8
 # Set proper permissions (CRITICAL - must be 600)
 chmod 600 backend/.snowflake/rsa_key.p8
 chmod 600 backend/.snowflake/lpt_rsa_key.p8
-
-# Verify keys are in place
-ls -la backend/.snowflake/
 ```
-
-**Important RSA Key Notes:**
-- **Never commit RSA keys to git** - add to .gitignore
-- Keys must have 600 permissions (owner read/write only)
-- Key paths are referenced in `shared/config/app.yaml`:
-  - `snowflake.production.connection.private_key_path`
-  - `snowflake.audit.connection.private_key_path`
-- Passphrases are also in app.yaml (keep secure)
-- Test Snowflake connectivity after deployment:
-  ```bash
-  # Test production connection
-  snowsql -a zeta_hub_reader.us-east-1 -u zx_dataops_service --private-key-path backend/.snowflake/rsa_key.p8
-
-  # Test audit connection
-  snowsql -a zetaglobal.us-east-1 -u green_lp_service --private-key-path backend/.snowflake/lpt_rsa_key.p8
-  ```
 
 4. **Configure Application**
 ```bash
 # Update master configuration
 nano shared/config/app.yaml
 
-# Important: Enable automation scheduler
+# Enable automation scheduler
 # automation:
 #   enabled: true  # ✅ Set to true
-#   interval_seconds: 60
 
-# Set environment variables
-cp .env.example .env
-nano .env
+# Update backend/.env with production values (CRITICAL)
+# backend/.env overrides app.yaml via CAM_* environment variables
+# Ensure these are set correctly:
+#   CAM_DB_HOST=<your-database-server>   # Database server (may differ from app server)
+#   CAM_ENVIRONMENT=production
+#   CAM_DEBUG=false
 
-# Generate shell config
+# Generate shell config from app.yaml
 cd SCRIPTS
 python3 config_loader.py
+cd ..
 ```
 
-4. **Start Backend (Automation Auto-Starts)**
+5. **Build Frontend with Production API URL (CRITICAL)**
 ```bash
-cd backend
-python3 app.py
+# Create production env file for Vite (baked into JS bundle at build time)
+cat > frontend/.env.production << 'EOF'
+VITE_API_BASE_URL=http://<your-app-server-ip>:5000
+VITE_ENVIRONMENT=production
+VITE_DEBUG_MODE=false
+EOF
 
-# Flask will automatically start the automation scheduler
-# You'll see: "🤖 Request automation started - requestPicker.sh will run every 60 seconds"
+# Build frontend (Vite auto-picks up .env.production)
+cd frontend
+npm install
+npm run build
+cd ..
 ```
 
-5. **Verify Automation Running**
-```bash
-# Check automation status via API
-curl http://localhost:5000/api/automation/status
+> ⚠️ **Important:** `frontend/.env.production` must exist before running `npm run build`.
+> Without it, `VITE_API_BASE_URL` defaults to `http://localhost:5000` — API calls will
+> fail for any browser not on the server itself.
 
-# Or check logs
+6. **Start Backend in Background**
+```bash
+cd /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/backend
+source ../CAM_Env/bin/activate
+nohup python app.py > logs/app.log 2>&1 &
+echo $! > logs/backend.pid
+```
+
+7. **Start Frontend in Background**
+```bash
+cd /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/frontend
+nohup npm run preview -- --port 3009 --host > /tmp/cam_frontend.log 2>&1 &
+echo $! > /tmp/cam_frontend.pid
+# Access at http://<your-app-server-ip>:3009
+```
+
+8. **Verify Services Running**
+```bash
+ss -tlnp | grep -E "3009|5000"
+curl http://<your-app-server-ip>:5000/api/automation/status
 tail -f backend/logs/app.log
 ```
+
+9. **Stop Services**
+```bash
+kill $(cat backend/logs/backend.pid)
+kill $(cat /tmp/cam_frontend.pid)
+```
+
+### ⚙️ Configuration Priority
+
+`backend/.env` **overrides** `shared/config/app.yaml` for `CAM_*` variables:
+
+| `.env` Variable | Overrides `app.yaml` Key | Notes |
+|---|---|---|
+| `CAM_DB_HOST` | `database.host` | Database server (not necessarily same as app server) |
+| `CAM_DB_PORT` | `database.port` | |
+| `CAM_DB_NAME` | `database.database` | |
+| `CAM_ENVIRONMENT` | `environment` | Must be `production` |
+| `CAM_DEBUG` | `debug` | Must be `false` |
+
+### 🔁 Restart Requirements
+
+| Change | Backend Restart | Frontend Rebuild |
+|---|---|---|
+| `app.yaml` changes | ✅ Yes | ❌ No |
+| `backend/.env` changes | ✅ Yes | ❌ No |
+| `frontend/.env.production` changes | ❌ No | ✅ Yes (`npm run build`) |
+| Enable/disable automation | ✅ Yes | ❌ No |
 
 ---
 

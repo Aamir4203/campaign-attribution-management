@@ -314,14 +314,15 @@ class SnowflakeAuditService:
             return False
 
     def check_existing_data(self, table_name: str, client_name: str,
-                           date_range: Tuple[str, str]) -> int:
+                           date_range: Tuple[str, str], source_table: str = None) -> int:
         """
-        Check for existing data in audit table for given client and date range
+        Check for existing data in audit table for given client, date range, and source table
 
         Args:
             table_name: Audit table name
             client_name: Client name
             date_range: Tuple of (start_date, end_date)
+            source_table: Source PostgreSQL table name (used to scope check to this upload only)
 
         Returns:
             Number of existing records
@@ -335,6 +336,7 @@ class SnowflakeAuditService:
                 FROM {table_name}
                 WHERE D_B_SEGMENT = '{client_name}'
                 AND DELIVEREDDATE BETWEEN '{date_range[0]}' AND '{date_range[1]}'
+                AND FILE_NAME = '{source_table}'
             """
 
             cursor.execute(query)
@@ -342,7 +344,7 @@ class SnowflakeAuditService:
 
             cursor.close()
 
-            logger.info(f"Found {count:,} existing records for {client_name} ({date_range[0]} to {date_range[1]})")
+            logger.info(f"Found {count:,} existing records for {client_name} / {source_table} ({date_range[0]} to {date_range[1]})")
 
             return count
 
@@ -351,14 +353,19 @@ class SnowflakeAuditService:
             return 0
 
     def remove_existing_data(self, table_name: str, client_name: str,
-                            date_range: Tuple[str, str]) -> bool:
+                            date_range: Tuple[str, str], source_table: str = None) -> bool:
         """
-        Remove existing data from audit table (Option A: Simple Delete)
+        Remove existing data from audit table scoped to the specific source table.
+
+        Filtering by FILE_NAME ensures only this upload's prior rows are removed,
+        preventing accidental deletion of other campaigns that share the same
+        D_B_SEGMENT and date range.
 
         Args:
             table_name: Audit table name
             client_name: Client name
             date_range: Tuple of (start_date, end_date)
+            source_table: Source PostgreSQL table name (scopes DELETE to this upload only)
 
         Returns:
             True if successful, False otherwise
@@ -371,9 +378,10 @@ class SnowflakeAuditService:
                 DELETE FROM {table_name}
                 WHERE D_B_SEGMENT = '{client_name}'
                 AND DELIVEREDDATE BETWEEN '{date_range[0]}' AND '{date_range[1]}'
+                AND FILE_NAME = '{source_table}'
             """
 
-            logger.info(f"Removing existing data for {client_name} ({date_range[0]} to {date_range[1]})")
+            logger.info(f"Removing existing data for {client_name} / {source_table} ({date_range[0]} to {date_range[1]})")
 
             cursor.execute(delete_query)
             rows_deleted = cursor.rowcount
@@ -563,9 +571,24 @@ class SnowflakeAuditService:
 
             logger.info(f"File staged, copying to {table_name}")
 
+            # Build explicit column mapping from fixed_header config so file
+            # positions map to the correct table columns regardless of table order.
+            # For columns with an alias (e.g. del_date -> delivereddate) use the alias.
+            columns_config = self.audit_config.get('columns', {})
+            fixed_header = columns_config.get('fixed_header', [])
+            col_names = [
+                (col.get('alias') if col.get('alias') else col.get('name')).upper()
+                for col in fixed_header
+            ]
+            col_list = ', '.join(col_names)
+            pos_list = ', '.join(f'${i + 1}' for i in range(len(col_names)))
+
             copy_sql = f"""
-                COPY INTO {table_name}
-                FROM {stage_name}
+                COPY INTO {table_name} ({col_list})
+                FROM (
+                    SELECT {pos_list}
+                    FROM {stage_name}
+                )
                 FILE_FORMAT = ({format_options})
                 ON_ERROR = 'CONTINUE'
             """
@@ -579,7 +602,11 @@ class SnowflakeAuditService:
                 result['rows_loaded'] = copy_results[3]
                 result['success'] = True
 
-                logger.info(f"Data copy completed: {result['rows_loaded']:,} rows")
+                if result['rows_loaded'] == 0 and result['rows_parsed'] > 0:
+                    first_error = copy_results[4] if len(copy_results) > 4 else 'unknown'
+                    logger.warning(f"0 rows loaded out of {result['rows_parsed']:,} parsed — first error: {first_error}")
+                else:
+                    logger.info(f"Data copy completed: {result['rows_loaded']:,} rows")
 
             # Clean up stage
             cursor.execute(f"REMOVE {stage_name}")
@@ -652,11 +679,11 @@ class SnowflakeAuditService:
                 # Step 5: Check for existing data
                 table_config = self.audit_config.get('table', {})
                 if table_config.get('validate_existing_data', True):
-                    existing_count = self.check_existing_data(audit_table, client_name, date_range)
+                    existing_count = self.check_existing_data(audit_table, client_name, date_range, source_table)
 
                     # Step 6: Remove old data if exists
                     if existing_count > 0 and table_config.get('remove_old_data', True):
-                        if not self.remove_existing_data(audit_table, client_name, date_range):
+                        if not self.remove_existing_data(audit_table, client_name, date_range, source_table):
                             error = f"Failed to remove existing data from {audit_table}"
                             logger.error(error)
                             result['errors'].append(error)

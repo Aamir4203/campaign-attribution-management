@@ -12,6 +12,9 @@ error_fun()
 
     $CONNECTION_STRING -vv -c "update $REQUEST_TABLE set REQUEST_STATUS='E',ERROR_CODE=$1  ,request_end_time=now(), REQUEST_DESC=concat(REQUEST_DESC,'- ','$2') where REQUEST_ID=$REQUEST_ID"
 
+    sh $SCRIPTPATH/cancelRequest.sh "$REQUEST_ID"
+    exit
+
 }
 
 
@@ -257,14 +260,14 @@ fi
 
 #=== Green Unsubs ===#
 
-$SF_STRING -q "select email,to_date(LASTUNSUBDATE),subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr '\t' '|' > $SPOOLPATH/unsubs
+$SF_STRING -q "select email,to_date(LASTUNSUBDATE),subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr ',' '|' > $SPOOLPATH/unsubs
 
 if [[ $? -ne 0 ]]
 then
 
         sleep 5s
 
-        $SF_STRING -q "select email,to_date(LASTUNSUBDATE),subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr '\t' '|' > $SPOOLPATH/unsubs
+        $SF_STRING -q "select email,to_date(LASTUNSUBDATE),subid from GREEN.LIST_PROCESSING.APT_UNSUB_DETAILS_SF where  offerid in ($offers) and to_date(LASTUNSUBDATE)>='$min_date' " -o output_format=csv -o header=true -o timing=false -o friendly=false -o variable_substitution=false | tr ',' '|' > $SPOOLPATH/unsubs
 
         if [[ $? -ne 0 ]]
         then

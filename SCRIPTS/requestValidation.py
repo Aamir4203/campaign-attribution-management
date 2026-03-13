@@ -28,14 +28,14 @@ import warnings
 sys.path.insert(0, os.path.dirname(__file__))
 from config_loader import get_config
 
-# Add Python modules path
-sys.path.append("/u1/techteam/PFM_CUSTOM_SCRIPTS/PYTHON_MODULES")
-from DbConns import getSnowflake
-
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Load configuration
 config = get_config()
+
+# Add Python modules path from config
+sys.path.append(config.python_modules_path)
+from DbConns import getSnowflake
 
 # Validation tracking
 validation_results = []
@@ -294,7 +294,7 @@ def validate_rltp_id_uniqueness(current_rltp_ids, client_id, engine, weekly_new_
             WHERE client_id={client_id}
             AND request_status='C'
             ORDER BY request_id DESC
-            LIMIT 1 OFFSET 1
+            LIMIT 1
         """
 
         prev_df = pd.read_sql(prev_query, con=engine)
@@ -401,11 +401,19 @@ def validate_residual_date(residual_date, cpm_report_path):
         return
 
     try:
-        # Read CPM report to get max date
-        cpm_df = pd.read_csv(cpm_report_path, sep="|", header=0)
+        # Read CPM report to get max date (no header row in file)
+        cpm_df = pd.read_csv(cpm_report_path, sep="|", header=None)
 
-        # Column 1 is the date column
-        max_cpm_date = pd.to_datetime(cpm_df.iloc[:, 1]).max()
+        # Column index 1 is the date column
+        max_cpm_date = pd.to_datetime(cpm_df.iloc[:, 1], errors='coerce').max()
+
+        if pd.isna(max_cpm_date):
+            add_validation("Residual Date", "Failed")
+            raise ValidationError(
+                "CPM report date column contains null/invalid values",
+                f"All values in date column (col index 1) of {cpm_report_path} are null or unparseable"
+            )
+
         residual_dt = pd.to_datetime(residual_date)
 
         if residual_dt >= max_cpm_date:
@@ -478,19 +486,17 @@ def main():
     print(f"Backend Request Validation - Request ID: {request_id}")
     print(f"{'='*60}")
 
-    # Get database configuration from centralized config
-    db_config = config.config.get('database', {})
-    postgres_cfg = db_config.get('postgres', {})
-
+    # Get database configuration via ConfigLoader (handles key name differences)
     pg_config = {
-        "host": postgres_cfg.get('host'),
-        "port": postgres_cfg.get('port', 5432),
-        "dbname": postgres_cfg.get('database'),
-        "user": postgres_cfg.get('user')
+        "host": config.db_host,
+        "port": config.db_port,
+        "dbname": config.db_name,
+        "user": config.db_user,
+        "password": config.db_password
     }
 
     # Build connection string
-    connection_string = f"postgresql+psycopg2://{pg_config['user']}:@{pg_config['host']}/{pg_config['dbname']}"
+    connection_string = f"postgresql+psycopg2://{pg_config['user']}:{pg_config['password']}@{pg_config['host']}:{pg_config['port']}/{pg_config['dbname']}"
     engine = create_engine(connection_string)
 
     conn = None

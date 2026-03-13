@@ -14,6 +14,9 @@ error_fun()
 
     $CONNECTION_STRING -vv -c "update $REQUEST_TABLE set REQUEST_STATUS='E',ERROR_CODE=$1  ,request_end_time=now(), REQUEST_DESC=concat(REQUEST_DESC,'- ','$2') where REQUEST_ID=$REQUEST_ID"
 
+    sh $SCRIPTPATH/cancelRequest.sh "$REQUEST_ID"
+    exit
+
 }
 
 

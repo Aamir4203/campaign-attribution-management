@@ -19,13 +19,13 @@ if [[ $? -ne 0 ]]; then
     # Send alert email
     if [ -n "$ALERT_TO" ]; then
         echo -e "Database connection failed at $(date)\n\nPlease check database connectivity." | \
-            mail -r "$ALERT_SENDER" -s "APT: Database Connection Error" "$ALERT_TO"
+            mail -r "$ALERT_SENDER" -s "APT: Database Connection Error" $ALERT_TO
     fi
     exit 1
 fi
 
 # Check if we can pick new requests (limit to 10 running requests)
-if [[ $running_request_count -lt 11 ]]; then
+if [[ $running_request_count -lt 8 ]]; then
 
     # Pick next request in queue
     new_request_id=$($CONNECTION_STRING -qtAX -c \
@@ -38,7 +38,7 @@ if [[ $running_request_count -lt 11 ]]; then
         echo "Picked request_id=$new_request_id for processing"
 
         # Run validation
-        python3 "$MAIN_SCRIPTS/requestValidation.py" "$new_request_id"
+        "$MAIN_PATH/CAM_Env/bin/python3" "$MAIN_SCRIPTS/requestValidation.py" "$new_request_id"
 
         if [[ $? -eq 0 ]]; then
             # Check validation status
@@ -58,7 +58,7 @@ if [[ $running_request_count -lt 11 ]]; then
             # Send alert email
             if [ -n "$ALERT_TO" ]; then
                 echo -e "Request validation script failed for request_id=$new_request_id at $(date)\n\nPlease check validation logs." | \
-                    mail -r "$ALERT_SENDER" -s "APT: Validation Failed" "$ALERT_TO"
+                    mail -r "$ALERT_SENDER" -s "APT: Validation Failed" $ALERT_TO
             fi
         fi
     else

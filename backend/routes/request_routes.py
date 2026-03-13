@@ -8,11 +8,27 @@ from datetime import datetime, timedelta
 import logging
 import subprocess
 import os
+import re
 from db import get_db_connection, release_db_connection
 from config.config import get_config
 
 logger = logging.getLogger(__name__)
 config = get_config()
+
+
+def normalize_query(raw_query):
+    """
+    Normalize a user-submitted SQL query for PostgreSQL/Snowflake compatibility.
+    - ''value'' → 'value'  (unescape doubled single-quotes)
+    - 'value'   → 'value'  (plain single-quotes preserved as string literals)
+    - AS 'alias' → AS "alias"  (single-quoted aliases converted to double-quoted,
+                                 since Snowflake rejects single-quoted identifiers)
+    """
+    if not raw_query:
+        return None
+    q = raw_query.replace("''", "'")
+    q = re.sub(r"\bAS\s+'([^']+)'", r'AS "\1"', q, flags=re.IGNORECASE)
+    return q
 
 # Create blueprint
 request_bp = Blueprint('request', __name__)
@@ -26,6 +42,7 @@ def get_requests():
         pagination_config = config.get_app_constants().get('pagination', {})
         default_page_size = pagination_config.get('defaultPageSize', 50)
         max_page_size = pagination_config.get('maxPageSize', 500)
+        monitor_max = config.get_monitor_max_records()   # hard cap from app.yaml
 
         # Get query parameters
         page = int(request.args.get('page', 1))
@@ -47,54 +64,59 @@ def get_requests():
         clients_table = config.get_table_name('clients')
         qa_table = config.get_table_name('qa_stats')
 
-        # Base query
-        base_query = f"""
-        SELECT
-            a.request_id,
-            lower(b.client_name) as client_name,
-            lower(a.week) as week,
-            lower(a.added_by) as added_by,
-            COALESCE(c.rltp_file_count, 0) as trt_count,
-            a.request_status,
-            a.request_desc,
-            COALESCE(a.execution_time, '-') as execution_time,
-            a.request_validation,
-            a.sf_upload_status,
-            a.sf_table_name,
-            a.sf_upload_time
-        FROM {requests_table} a
-        JOIN {clients_table} b ON a.client_id = b.client_id
-        LEFT JOIN {qa_table} c ON a.request_id = c.request_id
+        # Base SELECT used by both search and monitor-window queries
+        base_select = f"""
+            SELECT
+                a.request_id,
+                lower(b.client_name) as client_name,
+                lower(a.week) as week,
+                lower(a.added_by) as added_by,
+                COALESCE(c.rltp_file_count, 0) as trt_count,
+                a.request_status,
+                a.request_desc,
+                COALESCE(a.execution_time, '-') as execution_time,
+                a.request_validation,
+                a.sf_upload_status,
+                a.sf_table_name,
+                a.sf_upload_time
+            FROM {requests_table} a
+            JOIN {clients_table} b ON a.client_id = b.client_id
+            LEFT JOIN {qa_table} c ON a.request_id = c.request_id
         """
 
-        # Add search conditions if search term provided
-        where_clause = ""
-        search_params = []
         if search_term:
+            # Search the FULL table — no monitor_max cap so all records are reachable
+            search_pattern = f"%{search_term}%"
+            search_params = [search_pattern, search_pattern, search_pattern]
             where_clause = """
             WHERE (
                 CAST(a.request_id AS VARCHAR) ILIKE %s OR
-                b.client_name ILIKE %s OR
-                a.added_by ILIKE %s
+                lower(b.client_name) ILIKE %s OR
+                lower(a.added_by) ILIKE %s
             )
             """
-            search_pattern = f"%{search_term}%"
-            search_params = [search_pattern, search_pattern, search_pattern]
+            count_query = f"SELECT COUNT(*) FROM {requests_table} a JOIN {clients_table} b ON a.client_id = b.client_id {where_clause}"
+            cursor.execute(count_query, search_params)
+            total_count = cursor.fetchone()[0]
 
-        # Count total records
-        count_query = f"SELECT COUNT(*) FROM ({base_query} {where_clause}) as count_query"
-        cursor.execute(count_query, search_params)
-        total_count = cursor.fetchone()[0]
+            full_query = f"{base_select} {where_clause} ORDER BY a.request_id DESC LIMIT %s OFFSET %s"
+            query_params = search_params + [limit, offset]
+        else:
+            # No search — restrict to the most-recent N rows (monitor window)
+            recent_cte = f"""
+            WITH recent_requests AS (
+                {base_select}
+                ORDER BY a.request_id DESC
+                LIMIT {monitor_max}
+            )
+            """
+            count_query = f"{recent_cte} SELECT COUNT(*) FROM recent_requests"
+            cursor.execute(count_query)
+            total_count = cursor.fetchone()[0]
 
-        # Get paginated requests
-        full_query = f"""
-        {base_query}
-        {where_clause}
-        ORDER BY a.request_id DESC
-        LIMIT %s OFFSET %s
-        """
+            full_query = f"{recent_cte} SELECT * FROM recent_requests ORDER BY request_id DESC LIMIT %s OFFSET %s"
+            query_params = [limit, offset]
 
-        query_params = search_params + [limit, offset]
         cursor.execute(full_query, query_params)
 
         results = cursor.fetchall()
@@ -132,6 +154,8 @@ def get_requests():
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching requests: {e}")
         return jsonify({
             'success': False,
@@ -235,6 +259,8 @@ def submit_form():
             except (ValueError, TypeError):
                 priority_file_per = None
 
+        normalized_query = normalize_query(data.get('input_query') or '')
+
         # Insert into postback request details table
         requests_table = config.get_table_name('requests')
         insert_query = f"""
@@ -266,7 +292,7 @@ def submit_form():
             'Y' if data.get('offerSuppression', False) else 'N',
             'Y' if data.get('addBounce', False) else 'N',
             data.get('clientSuppressionPath') if data.get('clientSuppression') else None,
-            data.get('input_query'),
+            normalized_query,
             request_id_suppression,
             priority_file,
             priority_file_per,
@@ -303,6 +329,8 @@ def submit_form():
             }), 500
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error submitting form: {str(e)}")
         return jsonify({
             'success': False,
@@ -313,6 +341,7 @@ def submit_form():
 @request_bp.route('/add_request', methods=['POST'])
 def add_request():
     """Add new campaign attribution request - modern API endpoint"""
+    conn = None
     try:
         data = request.get_json()
 
@@ -381,6 +410,8 @@ def add_request():
 
         client_id = client_result[0]
 
+        normalized_query = normalize_query(converted_data.get('input_query') or '')
+
         # Insert into requests table
         requests_table = config.get_table_name('requests')
 
@@ -415,7 +446,7 @@ def add_request():
             converted_data.get('timeStampPath', ''),
             'Y' if converted_data.get('addTimeStamp') else 'N',
             'Y' if converted_data.get('addIpsLogs') else 'N',
-            converted_data.get('input_query', ''),
+            normalized_query,
             converted_data.get('priorityFile', ''),
             converted_data.get('priorityFilePer'),
             'Y' if converted_data.get('fileType') == 'Sent' else 'N',
@@ -436,6 +467,8 @@ def add_request():
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error in add_request: {str(e)}")
         return jsonify({
             'success': False,
@@ -523,12 +556,30 @@ def update_request(request_id):
             'oldDeliveredPercentage': 'old_delivered_per'
         }
 
+        # Handle client_name -> client_id lookup
+        if 'client_name' in data and data['client_name']:
+            clients_table = config.get_table_name('clients')
+            cursor.execute(
+                f"SELECT client_id FROM {clients_table} WHERE LOWER(client_name) = LOWER(%s)",
+                (data['client_name'],)
+            )
+            client_result = cursor.fetchone()
+            if client_result:
+                update_fields.append("client_id = %s")
+                update_values.append(client_result[0])
+                logger.info(f"   📝 Updating client_id: {client_result[0]} (from client_name: {data['client_name']})")
+            else:
+                logger.warning(f"   ⚠️ Client '{data['client_name']}' not found, client_id not updated")
+
         # Add updatable fields from request data
         for frontend_field, db_column in field_mapping.items():
             if frontend_field in data and data[frontend_field] is not None:
+                value = data[frontend_field]
+                if db_column == 'query' and isinstance(value, str):
+                    value = normalize_query(value)
                 update_fields.append(f"{db_column} = %s")
-                update_values.append(data[frontend_field])
-                logger.info(f"   📝 Updating {db_column}: {data[frontend_field]}")
+                update_values.append(value)
+                logger.info(f"   📝 Updating {db_column}: {value}")
 
         # Handle request_type -> type conversion
         if 'request_type' in data:
@@ -543,17 +594,52 @@ def update_request(request_id):
             update_values.append(on_sent_value)
             logger.info(f"   📝 Updating on_sent: {on_sent_value} (from file_type: {data['file_type']})")
 
-        # Always update rerun-related fields
-        update_fields.extend([
-            "request_status = %s",
-            "error_code = %s",
-            "request_validation = NULL",
-            "request_desc = %s",
-            "request_start_time = NOW()"
-        ])
+        # Check current request status to decide how to re-queue
+        cursor.execute(
+            f"SELECT request_status FROM {requests_table} WHERE request_id = %s",
+            (request_id,)
+        )
+        current_status_row = cursor.fetchone()
+        current_status = current_status_row[0].upper() if current_status_row else ''
 
-        description = f"Request updated and queued for rerun from {rerun_module} module"
-        update_values.extend(['RE', error_code, description, request_id])
+        # If the request is still W (validation failed before it was ever processed),
+        # just reset validation to NULL — picker will re-queue it as a fresh W request.
+        # Otherwise set RE so requestConsumer.sh handles it as a rerun from the error module.
+        if current_status == 'W':
+            new_status = 'W'
+            description = f"Re-queued for validation (rerun from {rerun_module} module)"
+            logger.info(f"   ℹ️ Current status is W — resetting validation to NULL, keeping status W")
+            update_fields.extend([
+                "request_status = %s",
+                "request_validation = NULL",
+                "request_desc = %s",
+                "request_start_time = NOW()"
+            ])
+            update_values.extend([new_status, description, request_id])
+        elif current_status == 'C':
+            new_status = 'RW'
+            description = f"Request updated and queued for rework from {rerun_module} module"
+            logger.info(f"   ℹ️ Current status is C (Completed) — setting status RW, error_code {error_code}")
+            update_fields.extend([
+                "request_status = %s",
+                "error_code = %s",
+                "request_validation = NULL",
+                "request_desc = %s",
+                "request_start_time = NOW()"
+            ])
+            update_values.extend([new_status, error_code, description, request_id])
+        else:
+            new_status = 'RE'
+            description = f"Request updated and queued for rerun from {rerun_module} module"
+            logger.info(f"   ℹ️ Current status is {current_status} — setting status RE, error_code {error_code}")
+            update_fields.extend([
+                "request_status = %s",
+                "error_code = %s",
+                "request_validation = NULL",
+                "request_desc = %s",
+                "request_start_time = NOW()"
+            ])
+            update_values.extend([new_status, error_code, description, request_id])
 
         logger.info(f"📋 Total fields to update: {len(update_fields)}")
 
@@ -575,7 +661,7 @@ def update_request(request_id):
 
         conn.commit()
         logger.info(f"✅ Request {request_id} updated successfully!")
-        logger.info(f"   Status: RE (Rerun)")
+        logger.info(f"   Status: {new_status}")
         logger.info(f"   Error Code: {error_code} ({rerun_module})")
         logger.info(f"   Fields Updated: {cursor.rowcount}")
         logger.info("=" * 80)
@@ -592,6 +678,8 @@ def update_request(request_id):
     except Exception as e:
         logger.error(f"❌ Exception during request update: {e}", exc_info=True)
         logger.info("=" * 80)
+        if conn:
+            release_db_connection(conn)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -608,12 +696,38 @@ def get_request_details(request_id):
         clients_table = config.get_table_name('clients')
         qa_table = config.get_table_name('qa_stats')
 
-        # Get full request details
+        # Get full request details for edit form pre-population
         query = f"""
-        SELECT a.*, b.client_name, COALESCE(c.rltp_file_count, 0) as trt_count
+        SELECT
+            a.request_id,
+            b.client_name,
+            a.added_by,
+            a.type          AS request_type,
+            a.from_date     AS start_date,
+            a.end_date,
+            a.residual_date AS residual_start,
+            a.week,
+            a.unique_decile_report_path AS file_path,
+            a.on_sent,
+            a.cpm_report_path    AS report_path,
+            a.decile_wise_report_path AS decile_report_path,
+            a.timestamp_append,
+            a.ip_append,
+            a.offerid_unsub_supp,
+            a.include_bounce_as_delivered,
+            a.supp_path,
+            a.request_id_supp,
+            a.timestamp_report_path,
+            a.priority_file,
+            a.priority_file_per,
+            a.query,
+            a.request_status,
+            a.request_validation,
+            a.request_desc,
+            a.created_date,
+            a.error_code
         FROM {requests_table} a
         JOIN {clients_table} b ON a.client_id = b.client_id
-        LEFT JOIN {qa_table} c ON a.request_id = c.request_id
         WHERE a.request_id = %s
         """
 
@@ -625,12 +739,38 @@ def get_request_details(request_id):
             release_db_connection(conn)
             return jsonify({'success': False, 'error': 'Request not found'}), 404
 
-        # Format result
+        # Map on_sent Y/N back to file_type string
+        on_sent = result[9]
+        file_type = 'Sent' if on_sent == 'Y' else 'Delivered'
+
         request_details = {
-            'request_id': result[0],
-            'client_name': result[-2],
-            'status': result[9] if len(result) > 9 else 'Unknown',
-            'created_date': str(result[2]) if len(result) > 2 and result[2] else None,
+            'request_id':               result[0],
+            'client_name':              result[1],
+            'added_by':                 result[2],
+            'request_type':             result[3],
+            'start_date':               str(result[4]) if result[4] else None,
+            'end_date':                 str(result[5]) if result[5] else None,
+            'residual_start':           str(result[6]) if result[6] else None,
+            'week':                     result[7],
+            'file_path':                result[8],
+            'file_type':                file_type,
+            'report_path':              result[10],
+            'decile_report_path':       result[11],
+            'timestamp_append':         result[12],
+            'ip_append':                result[13],
+            'offerid_unsub_supp':       result[14],
+            'include_bounce_as_delivered': result[15],
+            'supp_path':                result[16],
+            'request_id_supp':          result[17],
+            'timestamp_report_path':    result[18],
+            'priority_file':            result[19],
+            'priority_file_per':        result[20],
+            'query':                    result[21],
+            'request_status':           result[22],
+            'request_validation':       result[23],
+            'request_desc':             result[24],
+            'created_date':             str(result[25]) if result[25] else None,
+            'error_code':               result[26] if result[26] is not None else 0,
         }
 
         cursor.close()
@@ -642,6 +782,8 @@ def get_request_details(request_id):
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching request details: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -757,6 +899,8 @@ def get_request_stats(request_id):
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching request stats: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -870,6 +1014,8 @@ def download_request_stats(request_id):
         return response
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error downloading request stats: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -878,7 +1024,7 @@ def download_request_stats(request_id):
 def download_request_metrics(request_id):
     """Download metrics with custom or standard queries"""
     logger.info(f"📊 Download metrics endpoint called for request ID: {request_id}")
-
+    conn = None
     try:
         import pandas as pd
         from io import BytesIO
@@ -946,6 +1092,8 @@ def download_request_metrics(request_id):
         return response
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"❌ Error downloading metrics: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -954,7 +1102,7 @@ def download_request_metrics(request_id):
 def rerun_request(request_id):
     """Trigger rerun for a specific request with module selection"""
     logger.info(f"🔄 Rerun request endpoint called for ID: {request_id}")
-
+    conn = None
     try:
         data = request.get_json()
         rerun_module = data.get('rerun_type', 'TRT')
@@ -981,37 +1129,50 @@ def rerun_request(request_id):
         cursor = conn.cursor()
         requests_table = config.get_table_name('requests')
 
-        # Update request with RE status, error_code for module, and reset validation
+        # Check current status: completed requests need RW (undo-completed cleanup)
+        cursor.execute(
+            f"SELECT request_status FROM {requests_table} WHERE request_id = %s",
+            (request_id,)
+        )
+        status_row = cursor.fetchone()
+        if not status_row:
+            cursor.close()
+            release_db_connection(conn)
+            return jsonify({'success': False, 'error': 'Request not found'}), 404
+
+        current_status = status_row[0].upper() if status_row[0] else ''
+        if current_status == 'C':
+            new_status = 'RW'
+            description = f"Rework requested for {rerun_module} module"
+        else:
+            new_status = 'RE'
+            description = f"ReRun requested for {rerun_module} module"
+
         update_query = f"""
         UPDATE {requests_table}
-        SET request_status = 'RE',
+        SET request_status = %s,
             error_code = %s,
             request_validation = NULL,
             request_desc = %s,
             request_start_time = NOW()
         WHERE request_id = %s
         """
-
-        description = f"ReRun requested for {rerun_module} module"
-        cursor.execute(update_query, (error_code, description, request_id))
-
-        if cursor.rowcount == 0:
-            cursor.close()
-            release_db_connection(conn)
-            return jsonify({'success': False, 'error': 'Request not found'}), 404
+        cursor.execute(update_query, (new_status, error_code, description, request_id))
 
         conn.commit()
         cursor.close()
         release_db_connection(conn)
 
-        logger.info(f"✅ Request {request_id} marked for rerun - Module: {rerun_module} (Error Code: {error_code})")
+        logger.info(f"✅ Request {request_id} marked for {new_status} - Module: {rerun_module} (Error Code: {error_code})")
 
         return jsonify({
             'success': True,
-            'message': f'Request {request_id} marked for rerun - {rerun_module} module'
+            'message': f'Request {request_id} marked for {new_status} - {rerun_module} module'
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"❌ Error during rerun: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1065,7 +1226,7 @@ def kill_request(request_id):
             release_db_connection(conn)
 
             # Use shell script for cancellation
-            script_path = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS/cancelRequest.sh"
+            script_path = "/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS/cancelRequest.sh"
 
             if not os.path.exists(script_path):
                 # Fallback to database-only cancellation
@@ -1079,7 +1240,7 @@ def kill_request(request_id):
                 SET request_status = 'E',
                     request_desc = 'Cancelled (Script Not Found)',
                     request_end_time = NOW()
-                WHERE request_id = %s AND request_status IN ('W', 'R', 'RE')
+                WHERE request_id = %s AND request_status IN ('W', 'R', 'RE', 'RW')
                 """
                 cursor.execute(update_query, (request_id,))
 
@@ -1100,7 +1261,7 @@ def kill_request(request_id):
                 })
 
             # Execute shell script
-            working_directory = "/u1/techteam/PFM_CUSTOM_SCRIPTS/APT_TOOL_DB/SCRIPTS"
+            working_directory = "/u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/SCRIPTS"
 
             result = subprocess.run(
                 ['bash', './cancelRequest.sh', str(request_id)],
@@ -1118,23 +1279,40 @@ def kill_request(request_id):
                     'script_used': True
                 })
             else:
-                logger.error(f"Cancel script failed with return code: {result.returncode}")
-                error_message = result.stderr.strip() if result.stderr else "Unknown error"
+                logger.warning(f"Cancel script failed (rc={result.returncode}) for request {request_id}: {result.stderr.strip()}")
+                logger.info(f"Falling back to direct DB cancellation for request {request_id}")
 
-                # Provide user-friendly error messages
-                user_friendly_error = f"Process cancellation failed. {error_message}"
-                if "not found" in error_message.lower():
-                    user_friendly_error = "No active processes found for this request."
-                elif "timeout" in error_message.lower():
-                    user_friendly_error = "Cancellation timeout. Please try again."
-                elif "permission" in error_message.lower():
-                    user_friendly_error = "Permission denied. Contact administrator."
+                # Script failed (e.g. old request with no processing directory).
+                # The process is already gone — just update the DB status directly.
+                conn = get_db_connection()
+                if not conn:
+                    return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+                cursor = conn.cursor()
+                update_query = f"""
+                UPDATE {requests_table}
+                SET request_status = 'E',
+                    request_desc = 'Cancelled by User',
+                    request_end_time = NOW()
+                WHERE request_id = %s AND request_status IN ('W', 'R', 'RE', 'RW')
+                """
+                cursor.execute(update_query, (request_id,))
+
+                if cursor.rowcount == 0:
+                    cursor.close()
+                    release_db_connection(conn)
+                    return jsonify({'success': False, 'error': 'Request not found or already in a terminal state'}), 400
+
+                conn.commit()
+                cursor.close()
+                release_db_connection(conn)
 
                 return jsonify({
-                    'success': False,
-                    'error': user_friendly_error,
-                    'retry_available': True
-                }), 500
+                    'success': True,
+                    'message': f'Request {request_id} cancelled',
+                    'edit_enabled': True,
+                    'fallback': True
+                })
 
     except subprocess.TimeoutExpired:
         logger.error(f"Cancel script timeout for request {request_id}")
@@ -1144,6 +1322,8 @@ def kill_request(request_id):
             'retry_available': True
         }), 500
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error during kill request: {e}")
         return jsonify({
             'success': False,
@@ -1206,6 +1386,8 @@ def get_status_counts():
         })
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching status counts: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1244,6 +1426,8 @@ def get_client_name(request_id):
             return jsonify({'success': False, 'error': 'Request not found'}), 404
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching client name: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1280,5 +1464,7 @@ def get_week(request_id):
             return jsonify({'success': False, 'error': 'Request not found'}), 404
 
     except Exception as e:
+        if conn:
+            release_db_connection(conn)
         logger.error(f"Error fetching week: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

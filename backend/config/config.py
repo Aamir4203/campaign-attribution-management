@@ -203,6 +203,10 @@ class ConfigManager:
         """Get request-specific constants"""
         return self.get_app_constants().get('requests', {})
 
+    def get_monitor_max_records(self) -> int:
+        """Get max number of requests shown in the Request Monitor tab"""
+        return self.get_app_constants().get('pagination', {}).get('monitorMaxRecords', 200)
+
     def get_default_old_percentage(self) -> int:
         """Get default old delivered percentage"""
         return self.get_request_constants().get('defaultOldDeliveredPercentage', 65)

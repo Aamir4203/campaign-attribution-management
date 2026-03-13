@@ -319,10 +319,9 @@ python3 -m venv CAM_Env
 source CAM_Env/bin/activate
 pip3 install -r requirements.txt
 
-# Frontend
+# Frontend dependencies only (do NOT build yet — see Step 4a)
 cd frontend
 npm install
-npm run build
 cd ..
 ```
 
@@ -346,20 +345,61 @@ cp shared/config/app.production.yaml shared/config/app.yaml
 nano shared/config/app.yaml
 
 # Important settings to verify:
-# - database.host: zds-prod-pgdb03-01.bo3.e-dialog.com
+# - database.host: your database server (see note below)
 # - database.tables.requests: APT_CUSTOM_POSTBACK_REQUEST_DETAILS_DND (no _TEST)
 # - environment: production
 # - debug: false
 # - automation.enabled: true
 # - alerts.email_recipients: <correct emails>
 
-# Set environment variables
-cp .env.example .env
-nano .env
-
 # Generate shell config from app.yaml
 cd SCRIPTS
 python3 config_loader.py
+cd ..
+```
+
+> ⚠️ **Server Architecture Note:**
+> `database.host` in `app.yaml` and `CAM_DB_HOST` in `backend/.env` refer to the
+> **database server**, which may be different from the **application server**.
+> Example: App runs on `pgdb03-01`, but database is on `pgdb01-01`.
+> `backend/.env` always wins over `app.yaml` for `CAM_*` variables — verify `.env` values carefully.
+
+### 4a. Configure backend/.env (CRITICAL)
+
+`backend/.env` overrides `app.yaml` for the variables below. **These must be production values:**
+
+```bash
+nano backend/.env
+```
+
+Ensure these are set correctly:
+```
+CAM_DB_HOST=<your-database-server>   # Database server hostname
+CAM_DB_PORT=5432
+CAM_DB_NAME=apt_tool_db
+CAM_DB_USER=datateam
+CAM_DB_PASSWORD=<db-password>
+CAM_ENVIRONMENT=production           # ← Must be 'production'
+CAM_DEBUG=false                      # ← Must be 'false'
+```
+
+### 4b. Build Frontend with Production API URL (CRITICAL)
+
+The frontend API URL is **baked into the JS bundle at build time** via Vite's `.env.production` file.
+Without this file, the build defaults to `http://localhost:5000`, and API calls will fail for
+any browser not on the server itself.
+
+```bash
+# Create frontend production env (must exist BEFORE npm run build)
+cat > frontend/.env.production << 'EOF'
+VITE_API_BASE_URL=http://<your-app-server-ip>:5000
+VITE_ENVIRONMENT=production
+VITE_DEBUG_MODE=false
+EOF
+
+# Build frontend
+cd frontend
+npm run build
 cd ..
 ```
 
@@ -379,25 +419,64 @@ chmod 755 backend/logs
 chmod 755 SCRIPTS/logs
 ```
 
-### 6. Start Backend (Automation Auto-Starts)
+### 6. Start Backend (Background)
 
 ```bash
-cd backend
-python3 app.py
-
-# Expected output:
-# 🤖 Request automation started - requestPicker.sh will run every 60 seconds
-# * Running on http://0.0.0.0:5000
+cd /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/backend
+source ../CAM_Env/bin/activate
+nohup python app.py > logs/app.log 2>&1 &
+echo $! > logs/backend.pid
+echo "Backend PID: $(cat logs/backend.pid)"
 ```
 
-### 7. Verify Automation Running
+Expected in `logs/app.log`:
+```
+Environment: production
+Debug Mode: False
+🤖 Request automation started - requestPicker.sh will run every 60 seconds
+* Running on http://0.0.0.0:5000
+```
+
+### 7. Start Frontend (Background)
+
+```bash
+cd /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/frontend
+nohup npm run preview -- --port 3009 --host > /tmp/cam_frontend.log 2>&1 &
+echo $! > /tmp/cam_frontend.pid
+echo "Frontend PID: $(cat /tmp/cam_frontend.pid)"
+```
+
+> `npm run preview` serves the built `dist/` files — suitable for internal production use.
+> For public-facing high-traffic deployments, use nginx instead.
+
+### 8. Verify Both Are Running
+
+```bash
+# Check ports are listening
+ss -tlnp | grep -E "3009|5000"
+
+# Access frontend
+http://10.100.86.22:3009
+```
+
+### 9. Verify Automation Running
 
 ```bash
 # Check automation status via API
 curl http://10.100.86.22:5000/api/automation/status
 
-# Or check logs
-tail -f backend/logs/app.log
+# Watch backend logs
+tail -f /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/backend/logs/app.log
+```
+
+### 10. Stopping the Services
+
+```bash
+# Stop backend
+kill $(cat /u1/techteam/PFM_CUSTOM_SCRIPTS/Campaign-Attribution-Management/backend/logs/backend.pid)
+
+# Stop frontend
+kill $(cat /tmp/cam_frontend.pid)
 ```
 
 ### 8. Setup System Service (Optional but Recommended)
@@ -712,6 +791,19 @@ tail -f SCRIPTS/logs/requestPicker.log
 ---
 
 ## 📝 Change Log
+
+### February 24, 2026
+- ✅ First successful production deployment verified on zds-prod-pgdb03-01 (10.100.86.22)
+- ✅ Documented `backend/.env` override priority over `app.yaml` for `CAM_*` variables
+- ✅ Clarified server architecture: database on pgdb01-01, app server on pgdb03-01
+- ✅ Added `frontend/.env.production` requirement before `npm run build`
+- ✅ Enabled `automation.enabled: true` in `shared/config/app.yaml`
+- ✅ Fixed `automation.script_path` to absolute path (was failing with exit code 127)
+- ✅ Made all SCRIPTS/*.sh executable (`chmod +x`)
+- ✅ Switched to `nohup` background process for both frontend and backend
+- ✅ PID files stored at `backend/logs/backend.pid` and `/tmp/cam_frontend.pid`
+- ✅ Added restart requirements matrix to PROJECT_SUMMARY.md
+- ✅ Fixed `backend/.env`: `CAM_ENVIRONMENT=production`, `CAM_DEBUG=false`
 
 ### February 23, 2026
 - ✅ Created production configuration template (app.production.yaml)

@@ -77,6 +77,10 @@ def release_db_connection(conn):
     """
     try:
         if db_pool and conn:
+            try:
+                conn.rollback()  # neutralize any open transaction before reuse
+            except Exception:
+                pass
             db_pool.putconn(conn)
         elif conn:
             conn.close()
